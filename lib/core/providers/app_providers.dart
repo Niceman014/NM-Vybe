@@ -1,0 +1,156 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../features/library/models/playlist_model.dart';
+import '../../features/library/models/song_model.dart';
+import '../../features/player/controllers/player_controller.dart';
+import '../constants/theme_constants.dart';
+import '../data/library_repository.dart';
+import '../models/library_groups.dart';
+import '../services/audio_handler.dart';
+import '../services/settings_service.dart';
+
+/// Overridden in `main()` with the real implementations.
+final libraryRepositoryProvider = Provider<LibraryRepository>((ref) {
+  throw UnimplementedError(
+    'libraryRepositoryProvider must be overridden in main()',
+  );
+});
+
+final settingsControllerProvider =
+    StateNotifierProvider<SettingsController, AppSettings>((ref) {
+  throw UnimplementedError(
+    'settingsControllerProvider must be overridden in main()',
+  );
+});
+
+final audioHandlerProvider = Provider<NmVybeAudioHandler>((ref) {
+  throw UnimplementedError('audioHandlerProvider must be overridden in main()');
+});
+
+final playerControllerProvider =
+    StateNotifierProvider<PlayerController, PlayerState>((ref) {
+  final controller = PlayerController(
+    handler: ref.watch(audioHandlerProvider),
+    repository: ref.watch(libraryRepositoryProvider),
+  );
+  ref.onDispose(controller.dispose);
+  return controller;
+});
+
+// ---------------------------------------------------------------- library data
+final songsProvider = StreamProvider<List<Song>>((ref) {
+  return ref.watch(libraryRepositoryProvider).watchSongs();
+});
+
+final playlistsProvider = StreamProvider<List<Playlist>>((ref) {
+  return ref.watch(libraryRepositoryProvider).watchPlaylists();
+});
+
+final lastScanTimeProvider = FutureProvider<DateTime?>((ref) {
+  final repository = ref.watch(libraryRepositoryProvider);
+  // Invalidate when the song list changes so the settings page refreshes.
+  ref.watch(songsProvider);
+  return repository.getLastScanTime();
+});
+
+List<Song> sortSongs(
+  List<Song> songs,
+  SongsSortMode mode, {
+  bool ascending = true,
+}) {
+  final sorted = List<Song>.of(songs);
+  int compare(Song a, Song b) {
+    switch (mode) {
+      case SongsSortMode.title:
+        return a.displayTitle.toLowerCase().compareTo(b.displayTitle.toLowerCase());
+      case SongsSortMode.artist:
+        final artistCompare = a.displayArtist
+            .toLowerCase()
+            .compareTo(b.displayArtist.toLowerCase());
+        if (artistCompare != 0) return artistCompare;
+        return a.displayTitle.toLowerCase().compareTo(b.displayTitle.toLowerCase());
+      case SongsSortMode.album:
+        final albumCompare =
+            a.displayAlbum.toLowerCase().compareTo(b.displayAlbum.toLowerCase());
+        if (albumCompare != 0) return albumCompare;
+        final trackCompare =
+            (a.trackNumber ?? 0).compareTo(b.trackNumber ?? 0);
+        if (trackCompare != 0) return trackCompare;
+        return a.displayTitle.toLowerCase().compareTo(b.displayTitle.toLowerCase());
+      case SongsSortMode.dateAdded:
+        return a.addedAt.compareTo(b.addedAt);
+      case SongsSortMode.duration:
+        return a.duration.compareTo(b.duration);
+    }
+  }
+
+  sorted.sort(compare);
+  if (!ascending) return sorted.reversed.toList(growable: false);
+  return sorted;
+}
+
+final sortedSongsProvider = Provider<List<Song>>((ref) {
+  final songs = ref.watch(songsProvider).valueOrNull ?? const <Song>[];
+  final settings = ref.watch(settingsControllerProvider);
+  return sortSongs(
+    songs,
+    settings.songsSortMode,
+    ascending: settings.songsSortAscending,
+  );
+});
+
+final albumsProvider = Provider<List<AlbumGroup>>((ref) {
+  return groupAlbums(ref.watch(sortedSongsProvider));
+});
+
+final artistsProvider = Provider<List<ArtistGroup>>((ref) {
+  return groupArtists(ref.watch(sortedSongsProvider));
+});
+
+final favoriteSongsProvider = Provider<List<Song>>((ref) {
+  final songs = ref.watch(sortedSongsProvider);
+  return songs.where((song) => song.isFavorite).toList(growable: false);
+});
+
+final recentlyPlayedProvider = Provider<List<Song>>((ref) {
+  final songs = ref.watch(songsProvider).valueOrNull ?? const <Song>[];
+  final played = songs.where((song) => song.lastPlayedAt != null).toList()
+    ..sort((a, b) => b.lastPlayedAt!.compareTo(a.lastPlayedAt!));
+  return played;
+});
+
+/// Live search query used by the library search field.
+final searchQueryProvider = StateProvider<String>((ref) => '');
+
+final searchResultsProvider = Provider<List<Song>>((ref) {
+  final query = ref.watch(searchQueryProvider).trim().toLowerCase();
+  if (query.isEmpty) return const <Song>[];
+  final songs = ref.watch(sortedSongsProvider);
+  return songs.where((song) {
+    return song.displayTitle.toLowerCase().contains(query) ||
+        song.displayArtist.toLowerCase().contains(query) ||
+        song.displayAlbum.toLowerCase().contains(query);
+  }).toList(growable: false);
+});
+
+final isLoadingLibraryProvider = Provider<bool>((ref) {
+  return ref.watch(songsProvider).isLoading;
+});
+
+final libraryErrorProvider = Provider<Object?>((ref) {
+  return ref.watch(songsProvider).error;
+});
+
+/// Looks up songs for a playlist, preserving playlist order.
+List<Song> resolvePlaylistSongs(Playlist playlist, List<Song> library) {
+  final byId = <String, Song>{for (final song in library) song.id: song};
+  final resolved = <Song>[];
+  for (final id in playlist.songIds) {
+    final song = byId[id];
+    if (song != null) resolved.add(song);
+  }
+  return resolved;
+}
+
+/// Default accent used while settings are unavailable (tests).
+const int fallbackSeedColorValue = ThemeConstants.defaultSeedValue;

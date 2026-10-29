@@ -1,19 +1,32 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:audio_service/audio_service.dart';
-import 'package:nm_vybe/core/services/audio_handler.dart';
-import 'package:nm_vybe/app.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-final audioHandlerProvider = Provider<AudioHandler>((ref) => throw UnimplementedError());
+import 'app.dart';
+import 'core/data/library_repository.dart';
+import 'core/providers/app_providers.dart';
+import 'core/services/audio_handler.dart';
+import 'core/services/settings_service.dart';
+import 'core/utils/logger.dart';
 
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  final audioHandler = await initAudioService();
+
+  const logger = AppLogger('main');
+  final stopwatch = Stopwatch()..start();
+
+  final preferences = await SharedPreferences.getInstance();
+  final repository = await SembastLibraryRepository.open();
+  final audioHandler = await initAudioHandler();
+
+  logger.i('Booted in ${stopwatch.elapsedMilliseconds}ms');
 
   runApp(
     ProviderScope(
       overrides: [
+        libraryRepositoryProvider.overrideWithValue(repository),
+        settingsControllerProvider
+            .overrideWith((ref) => SettingsController(preferences)),
         audioHandlerProvider.overrideWithValue(audioHandler),
       ],
       child: const NmVybeApp(),
