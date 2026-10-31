@@ -46,7 +46,12 @@ void main() {
         );
         final duration = handler.duration;
         expect(duration, isNotNull, reason: '${item.title} duration is read');
-        await handler.seek(duration! - const Duration(milliseconds: 200));
+        expect(
+          duration,
+          lessThan(const Duration(seconds: 10)),
+          reason: '${item.title} fixture is short enough for the codec gate',
+        );
+        await handler.seek(_nearEnd(duration!));
         await handler.pause();
         expect(handler.isPlaying, isFalse, reason: '${item.title} pauses');
         await handler.play();
@@ -69,7 +74,7 @@ void main() {
           'duration for ${items[expectedIndex - 1].title}',
         );
         final duration = handler.duration!;
-        await handler.seek(duration - const Duration(milliseconds: 200));
+        await handler.seek(_nearEnd(duration));
         await _waitFor(
           () => handler.currentIndex == expectedIndex,
           'queue advancing to ${items[expectedIndex].title}',
@@ -78,7 +83,7 @@ void main() {
       }
       final finalDuration = handler.duration;
       expect(finalDuration, isNotNull);
-      await handler.seek(finalDuration! - const Duration(milliseconds: 200));
+      await handler.seek(_nearEnd(finalDuration!));
       await _waitFor(
         () => handler.player.processingState == ProcessingState.completed,
         'completion of the full format queue',
@@ -99,3 +104,7 @@ Future<void> _waitFor(bool Function() condition, String description) async {
     await Future<void>.delayed(const Duration(milliseconds: 20));
   }
 }
+
+Duration _nearEnd(Duration duration) => duration > const Duration(seconds: 1)
+    ? duration - const Duration(seconds: 1)
+    : duration * 0.5;
