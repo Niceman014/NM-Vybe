@@ -2,14 +2,17 @@
 
 This checklist is for a USB-connected Android phone. The checked build is a
 debug APK; it is for QA and must not be distributed as a production release.
+The most recently built APK is at
+`build\app\outputs\flutter-apk\app-debug.apk` in the project folder.
 
 ## 1. Prepare the phone and PC
 
 1. On the phone, enable **Developer options** and **USB debugging**.
 2. Connect the phone by USB, unlock it, and accept the debugging prompt.
-3. In a project-root PowerShell terminal, run:
+3. In a PowerShell terminal, run these exact commands:
 
    ```powershell
+   Set-Location 'D:\Flutter Projects\nm_vybe'
    flutter devices
    adb devices -l
    ```
@@ -23,15 +26,16 @@ debug APK; it is for QA and must not be distributed as a production release.
 
 Build from the project root. This build intentionally has no online backend
 URL, so the app must explain that online search is not configured while local
-playback remains available.
+playback remains available. The project stability gate already rebuilt the
+debug APK; to install that exact build directly, run:
 
 ```powershell
-$env:TEMP = Join-Path (Get-Location) '.tmp'
-$env:TMP = $env:TEMP
-flutter pub get
-flutter build apk --debug
+Set-Location 'D:\Flutter Projects\nm_vybe'
 adb install -r build\app\outputs\flutter-apk\app-debug.apk
 ```
+
+To rebuild after any later source edits, run `flutter build apk --debug` first,
+then repeat the install command.
 
 Open **NM VYBE** from the phone. `-r` upgrades an existing install while
 preserving its app data when Android permits it. To reinstall from scratch,
