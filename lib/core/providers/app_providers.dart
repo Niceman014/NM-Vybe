@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/legacy.dart';
 import '../../features/library/models/playlist_model.dart';
 import '../../features/library/models/song_model.dart';
 import '../../features/player/controllers/player_controller.dart';
+import '../../features/updates/controllers/update_controller.dart';
+import '../../features/updates/services/update_strategy_factory.dart';
 import '../constants/theme_constants.dart';
 import '../data/library_repository.dart';
 import '../models/library_groups.dart';
@@ -27,6 +29,16 @@ final settingsControllerProvider =
 final audioHandlerProvider = Provider<NmVybeAudioHandler>((ref) {
   throw UnimplementedError('audioHandlerProvider must be overridden in main()');
 });
+
+final updateControllerProvider =
+    StateNotifierProvider<UpdateController, UpdateUiState>((ref) {
+      final controller = UpdateController(
+        UpdateStrategyFactory.forPlatform(
+          UpdateStrategyFactory.currentPlatform,
+        ),
+      );
+      return controller;
+    });
 
 final playerControllerProvider =
     StateNotifierProvider<PlayerController, PlayerState>((ref) {

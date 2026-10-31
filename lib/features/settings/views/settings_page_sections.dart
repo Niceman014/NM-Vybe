@@ -14,7 +14,10 @@ extension _SettingsPageSections on _SettingsPageState {
       borderRadius: BorderRadius.circular(ThemeConstants.radiusLarge),
       clipBehavior: Clip.antiAlias,
       child: ExpansionTile(
-        leading: Icon(Icons.download_for_offline_outlined, color: theme.colorScheme.primary),
+        leading: Icon(
+          Icons.download_for_offline_outlined,
+          color: theme.colorScheme.primary,
+        ),
         title: const Text('Offline downloads'),
         children: [
           SwitchListTile(
@@ -35,10 +38,14 @@ extension _SettingsPageSections on _SettingsPageState {
               initialValue: settings.downloadStorageLimitMb,
               isExpanded: true,
               items: const [512, 1024, 2048, 5120]
-                  .map((value) => DropdownMenuItem(
-                        value: value,
-                        child: Text(value >= 1024 ? '${value ~/ 1024} GB' : '$value MB'),
-                      ))
+                  .map(
+                    (value) => DropdownMenuItem(
+                      value: value,
+                      child: Text(
+                        value >= 1024 ? '${value ~/ 1024} GB' : '$value MB',
+                      ),
+                    ),
+                  )
                   .toList(),
               onChanged: (value) {
                 if (value != null) controller.setDownloadStorageLimitMb(value);
@@ -440,9 +447,16 @@ extension _SettingsPageSections on _SettingsPageState {
   }
 
   // ------------------------------------------------------------------- about
-  Widget _aboutSection(BuildContext context) {
+  Widget _aboutSection(BuildContext context, {required UpdateUiState state}) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final busy =
+        state.status == UpdateStatus.checking ||
+        state.status == UpdateStatus.downloading ||
+        state.status == UpdateStatus.verifying;
+    final canInstall =
+        state.status == UpdateStatus.available &&
+        (state.manifest == null || state.manifest!.downloadConfigured);
     return _SettingsSection(
       title: 'About',
       icon: Icons.info_outline_rounded,
@@ -511,10 +525,8 @@ extension _SettingsPageSections on _SettingsPageState {
         ListTile(
           leading: const Icon(Icons.system_update_alt_rounded),
           title: const Text('Check for updates'),
-          subtitle: Text(
-            _loadingVersion ? 'Current version' : 'You are on v$_version',
-          ),
-          trailing: _checkingUpdate
+          subtitle: Text(_updateStateDescription(state)),
+          trailing: busy
               ? const SizedBox(
                   width: ThemeConstants.spacing24,
                   height: ThemeConstants.spacing24,
@@ -523,9 +535,96 @@ extension _SettingsPageSections on _SettingsPageState {
                   ),
                 )
               : const Icon(Icons.chevron_right_rounded),
-          enabled: !_checkingUpdate,
-          onTap: _checkingUpdate ? null : _checkForUpdates,
+          enabled: !busy,
+          onTap: busy ? null : _checkForUpdates,
         ),
+        if (state.status == UpdateStatus.available) ...[
+          if ((state.manifest?.releaseNotes ?? '').isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Text(state.manifest!.releaseNotes),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: canInstall ? _installUpdate : null,
+                icon: const Icon(Icons.download_rounded),
+                label: Text(
+                  canInstall
+                      ? 'Update to v${state.manifest?.version ?? 'latest'}'
+                      : 'Installer hosting is not configured yet',
+                ),
+              ),
+            ),
+          ),
+        ],
+        if (state.status == UpdateStatus.downloading) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+            child: LinearProgressIndicator(value: state.progress),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    state.progress == null
+                        ? 'Downloading update…'
+                        : 'Downloading ${(state.progress! * 100).round()}%',
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: _cancelUpdateDownload,
+                  icon: const Icon(Icons.close_rounded),
+                  label: const Text('Cancel'),
+                ),
+              ],
+            ),
+          ),
+        ],
+        if (state.status == UpdateStatus.verifying)
+          const ListTile(
+            leading: SizedBox.square(
+              dimension: 24,
+              child: CircularProgressIndicator(strokeWidth: 3),
+            ),
+            title: Text('Verifying installer…'),
+          ),
+        if (state.status == UpdateStatus.failed ||
+            state.status == UpdateStatus.cancelled)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    state.message ?? 'Update failed. Please try again.',
+                    style: TextStyle(color: scheme.error),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: _checkForUpdates,
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('Retry'),
+                ),
+              ],
+            ),
+          ),
+        if (state.status == UpdateStatus.launched ||
+            state.status == UpdateStatus.openedPage ||
+            state.status == UpdateStatus.upToDate)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Text(
+              state.message ?? _updateStateDescription(state),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
         ListTile(
           leading: const Icon(Icons.description_outlined),
           title: const Text('Open-source licences'),
@@ -568,4 +667,21 @@ extension _SettingsPageSections on _SettingsPageState {
       ],
     );
   }
+
+  String _updateStateDescription(UpdateUiState state) => switch (state.status) {
+    UpdateStatus.idle =>
+      _loadingVersion
+          ? 'Current version'
+          : 'You are on v$_version. Tap to check.',
+    UpdateStatus.checking => 'Checking for updates…',
+    UpdateStatus.upToDate => 'You are up to date.',
+    UpdateStatus.available =>
+      'Version ${state.manifest?.version ?? 'available'} is ready.',
+    UpdateStatus.downloading => 'Downloading update…',
+    UpdateStatus.verifying => 'Verifying installer…',
+    UpdateStatus.failed => state.message ?? 'Update check failed.',
+    UpdateStatus.cancelled => 'Update cancelled.',
+    UpdateStatus.openedPage => state.message ?? 'Opened the update page.',
+    UpdateStatus.launched => state.message ?? 'Installer started.',
+  };
 }

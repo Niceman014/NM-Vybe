@@ -9,7 +9,8 @@ import '../../../core/providers/app_providers.dart';
 import '../../../core/services/artwork_service.dart';
 import '../../../data/repositories/music_providers.dart';
 import '../../../core/services/settings_service.dart';
-import '../../../core/services/update_service.dart';
+import '../../../features/updates/controllers/update_controller.dart';
+import '../../../features/updates/services/update_strategy.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/utils/platform_info.dart';
 import '../../../shared/widgets/album_art.dart';
@@ -31,11 +32,8 @@ class SettingsPage extends ConsumerStatefulWidget {
 }
 
 class _SettingsPageState extends ConsumerState<SettingsPage> {
-  final UpdateService _updateService = UpdateService();
-
   String _version = AppConstants.appVersion;
   bool _loadingVersion = true;
-  bool _checkingUpdate = false;
   bool _clearingLibrary = false;
   int _artworkBytes = 0;
   int _downloadBytes = 0;
@@ -75,7 +73,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
   Future<void> _loadDownloadSize() async {
     try {
-      final bytes = await ref.read(internetArchiveServiceProvider).downloadedBytes();
+      final bytes = await ref
+          .read(internetArchiveServiceProvider)
+          .downloadedBytes();
       if (mounted) setState(() => _downloadBytes = bytes);
     } catch (_) {
       if (mounted) setState(() => _downloadBytes = 0);
@@ -87,10 +87,18 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Delete offline downloads?'),
-        content: const Text('This permanently removes all Internet Archive downloads from this device.'),
+        content: const Text(
+          'This permanently removes all Internet Archive downloads from this device.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Delete downloads')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete downloads'),
+          ),
         ],
       ),
     );
@@ -98,10 +106,16 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     try {
       await ref.read(internetArchiveServiceProvider).deleteDownloads();
       final songs = ref.read(songsProvider).value ?? const <Song>[];
-      await ref.read(libraryRepositoryProvider).deleteSongs(
-        songs.where((song) => song.isDownloaded && song.source == 'internet_archive')
-            .map((song) => song.id),
-      );
+      await ref
+          .read(libraryRepositoryProvider)
+          .deleteSongs(
+            songs
+                .where(
+                  (song) =>
+                      song.isDownloaded && song.source == 'internet_archive',
+                )
+                .map((song) => song.id),
+          );
       await _loadDownloadSize();
       _showSnack('Offline downloads deleted');
     } catch (error) {
@@ -193,18 +207,14 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   }
 
   Future<void> _checkForUpdates() async {
-    setState(() => _checkingUpdate = true);
-    try {
-      await _updateService.openStoreUpdates();
-      if (!mounted) return;
-      _showSnack('Opened your app store. Updates are managed there.');
-    } catch (error) {
-      if (!mounted) return;
-      _showSnack('Update check failed: $error');
-    } finally {
-      if (mounted) setState(() => _checkingUpdate = false);
-    }
+    await ref.read(updateControllerProvider.notifier).checkForUpdates();
   }
+
+  Future<void> _installUpdate() =>
+      ref.read(updateControllerProvider.notifier).installAvailable();
+
+  Future<void> _cancelUpdateDownload() =>
+      ref.read(updateControllerProvider.notifier).cancelDownload();
 
   // ------------------------------------------------------------- sheet actions
   Future<void> _showSpeedSheet() async {
@@ -366,6 +376,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final settings = ref.watch(settingsControllerProvider);
     final settingsController = ref.read(settingsControllerProvider.notifier);
     final player = ref.watch(playerControllerProvider);
+    final updateState = ref.watch(updateControllerProvider);
     final scanState = ref.watch(scanControllerProvider);
     final songs = ref.watch(songsProvider).value ?? const <Song>[];
     final lastScan =
@@ -385,7 +396,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       lastScan: lastScan,
     );
     final playback = _playbackSection(context, player: player);
-    final about = _aboutSection(context);
+    final about = _aboutSection(context, state: updateState);
     final downloads = _downloadsSection(
       context,
       settings: settings,

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/constants/app_constants.dart';
 import 'core/providers/app_providers.dart';
 import 'core/theme/app_theme.dart';
+import 'features/updates/views/update_gate.dart';
 import 'shared/widgets/app_shell.dart';
 
 class NmVybeApp extends ConsumerWidget {
@@ -40,7 +41,7 @@ class NmVybeApp extends ConsumerWidget {
             dynamicScheme: useDynamic ? darkDynamic : null,
             pureBlack: settings.usePureBlackTheme,
           ),
-          home: const AppShell(),
+          home: const UpdateGate(child: AppShell()),
         );
       },
     );

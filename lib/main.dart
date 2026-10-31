@@ -11,6 +11,7 @@ import 'core/services/download_storage.dart';
 import 'core/services/settings_service.dart';
 import 'core/utils/logger.dart';
 import 'core/utils/platform_info.dart';
+import 'features/updates/services/windows_installer_strategy.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,6 +25,17 @@ Future<void> main() async {
   SembastLibraryRepository? repository;
 
   try {
+    if (PlatformInfo.isWindows) {
+      try {
+        await WindowsInstallerStrategy.cleanupPartialFiles();
+      } catch (error, stackTrace) {
+        logger.w(
+          'Could not clean interrupted updater downloads',
+          error,
+          stackTrace,
+        );
+      }
+    }
     await AppDatabase.prepareStorage();
     await DownloadStorage.cleanupPartialFiles();
     final preferences = await AppPreferences.open();
