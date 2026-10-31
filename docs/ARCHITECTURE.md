@@ -11,15 +11,17 @@ without signing in. Google sign-in and cloud playlist backup are requested
 product features but are not implemented yet. Local music files remain on the
 device unless the user explicitly enables a future backup feature.
 
-Flutter 3.50 / Dart 3.14. Riverpod 2.6.1 (`StateNotifierProvider` style),
-`just_audio` 0.10.6, `audio_service` 0.18.19, `sembast` 3.8, and
-`just_audio_windows` 0.2.3.
+Flutter 3.50 / Dart 3.14. Riverpod 3.x with legacy `StateNotifierProvider`,
+`just_audio` 0.10.6 with `just_audio_media_kit` and `media_kit_libs_windows_audio`
+on Windows, `audio_service` 0.18.19, and Sembast 3.8.
 
 ## Commands
 
-The sandboxed shell cannot run Flutter; every `flutter`/`dart` command must be
-run with `sandbox_permissions: danger-full-access` on the `pwsh` tool (the user
-approves). Prefer one `flutter analyze` run at the end of your work, not many.
+Use a project-root PowerShell terminal. If Flutter reports that it cannot
+access `E:\Android Application Development\flutter\bin\cache\lockfile`, run
+the Flutter command from a terminal that can access the installed SDK; the
+project's `.tmp` directory can be used for `TEMP` and `TMP` when Windows temp
+permissions interfere.
 
 ```powershell
 flutter analyze          # must print "No issues found!"
@@ -38,14 +40,16 @@ lib/
     data/                       library_repository (sembast), in_memory repo
     models/                     library_groups (AlbumGroup/ArtistGroup)
     providers/app_providers.dart  repository/settings/audio/player + derived library providers
-    services/                   audio_handler, artwork_service, settings_service, db_service
+    services/                   audio, artwork, settings, database, download, scan, and tag services
     theme/app_theme.dart        Material 3 theme factory
     utils/                      formatters, logger, platform_info
   features/
     library/                    models (Song, Playlist), views, widgets, controllers
+    discover/                   source search and licensed download UI
     player/                     controllers (PlayerController), views
     playlists/                  views
     settings/                   views, controllers (equalizer)
+  data/                         source interfaces, providers, source adapters, repository
   shared/widgets/               app_shell, mini_player, album_art, song_tile
 ```
 
