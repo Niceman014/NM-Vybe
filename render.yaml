@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: nm-vybe-music-api
+    runtime: node
+    plan: starter
+    rootDir: backend
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: JAMENDO_CLIENT_ID
+        sync: false
+      - key: JAMENDO_COMMERCIAL_LICENSE_CONFIRMED
+        value: "true"
+      - key: JAMENDO_OFFLINE_DOWNLOADS_LICENSED
+        value: "false"

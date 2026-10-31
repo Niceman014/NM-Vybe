@@ -70,9 +70,9 @@ List<AlbumGroup> groupAlbums(
         if (discCompare != 0) return discCompare;
         final trackCompare = (a.trackNumber ?? 0).compareTo(b.trackNumber ?? 0);
         if (trackCompare != 0) return trackCompare;
-        return a.displayTitle
-            .toLowerCase()
-            .compareTo(b.displayTitle.toLowerCase());
+        return a.displayTitle.toLowerCase().compareTo(
+          b.displayTitle.toLowerCase(),
+        );
       });
     final first = albumSongs.first;
     albums.add(
@@ -87,8 +87,9 @@ List<AlbumGroup> groupAlbums(
   }
 
   albums.sort((a, b) {
-    final artistCompare =
-        a.artist.toLowerCase().compareTo(b.artist.toLowerCase());
+    final artistCompare = a.artist.toLowerCase().compareTo(
+      b.artist.toLowerCase(),
+    );
     if (artistCompare != 0) return artistCompare;
     return a.name.toLowerCase().compareTo(b.name.toLowerCase());
   });
@@ -105,8 +106,11 @@ List<ArtistGroup> groupArtists(Iterable<Song> songs) {
   final artists = <ArtistGroup>[];
   for (final entry in buckets.entries) {
     final artistSongs = List<Song>.of(entry.value)
-      ..sort((a, b) =>
-          a.displayAlbum.toLowerCase().compareTo(b.displayAlbum.toLowerCase()));
+      ..sort(
+        (a, b) => a.displayAlbum.toLowerCase().compareTo(
+          b.displayAlbum.toLowerCase(),
+        ),
+      );
     artists.add(
       ArtistGroup(
         name: entry.key,

@@ -23,12 +23,22 @@ class AppLogger {
   }
 
   void w(String message, [Object? error, StackTrace? stackTrace]) {
-    developer.log(message,
-        name: tag, level: 900, error: error, stackTrace: stackTrace);
+    developer.log(
+      message,
+      name: tag,
+      level: 900,
+      error: error,
+      stackTrace: stackTrace,
+    );
   }
 
   void e(String message, [Object? error, StackTrace? stackTrace]) {
-    developer.log(message,
-        name: tag, level: 1000, error: error, stackTrace: stackTrace);
+    developer.log(
+      message,
+      name: tag,
+      level: 1000,
+      error: error,
+      stackTrace: stackTrace,
+    );
   }
 }

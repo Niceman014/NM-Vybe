@@ -6,12 +6,6 @@ class AppConstants {
   static const String appTagline = 'Your music. Your vibe.';
   static const String appVersion = '1.0.0';
 
-  static const String repoUrl = 'https://github.com/Niceman014/nm_vybe';
-  static const String releasesUrl = '$repoUrl/releases';
-  static const String issuesUrl = '$repoUrl/issues';
-  static const String versionJsonUrl =
-      'https://raw.githubusercontent.com/Niceman014/nm_vybe/main/version.json';
-
   /// File extensions treated as audio by the desktop scanner.
   static const Set<String> audioExtensions = {
     '.mp3',
@@ -49,5 +43,9 @@ class AppConstants {
   static const String prefsPrefix = 'nm_vybe.';
 
   /// Default folder names probed when auto-importing on desktop.
-  static const List<String> desktopMusicFolderNames = ['Music', 'Musique', 'Música'];
+  static const List<String> desktopMusicFolderNames = [
+    'Music',
+    'Musique',
+    'Música',
+  ];
 }

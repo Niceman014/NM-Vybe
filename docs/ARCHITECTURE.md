@@ -5,13 +5,15 @@
 
 ## Product
 
-**NM VYBE** — a free, local-first, cross-platform music player. Your own audio
-files, beautiful Material 3 UI, no accounts, no ads, no tracking. Android first,
-Windows desktop alongside. Architecture must leave room for online sources
-later, but v1 plays local files only.
+**NM VYBE** — a proprietary, local-first music player for Android and Windows
+v1, planned as a one-time purchase. Local playback and playlists must work
+without signing in. Google sign-in and cloud playlist backup are requested
+product features but are not implemented yet. Local music files remain on the
+device unless the user explicitly enables a future backup feature.
 
-Flutter 3.50 beta / Dart 3.14. Riverpod 2.6 (`StateNotifierProvider` style), `just_audio` 0.9.46,
-`audio_service` 0.18, `sembast` 3.8, `just_audio_windows` 0.2.3.
+Flutter 3.50 / Dart 3.14. Riverpod 2.6.1 (`StateNotifierProvider` style),
+`just_audio` 0.10.6, `audio_service` 0.18.19, `sembast` 3.8, and
+`just_audio_windows` 0.2.3.
 
 ## Commands
 

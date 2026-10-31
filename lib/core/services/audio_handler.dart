@@ -34,6 +34,7 @@ class NmVybeAudioHandler extends BaseAudioHandler
   NmVybeAudioHandler._(this._player, this._equalizer) {
     _player.playbackEventStream.map(_transformEvent).pipe(playbackState);
     _player.currentIndexStream.listen(_onCurrentIndexChanged);
+    _player.errorStream.listen(_onPlaybackError);
   }
 
   factory NmVybeAudioHandler() {
@@ -53,8 +54,9 @@ class NmVybeAudioHandler extends BaseAudioHandler
 
   final AudioPlayer _player;
   final AndroidEqualizer? _equalizer;
+  final StreamController<String> _playbackErrorController =
+      StreamController<String>.broadcast();
 
-  ConcatenatingAudioSource? _playlist;
   List<MediaItem> _queue = const [];
   int _currentIndex = 0;
   PlaybackEvent? _lastEvent;
@@ -62,6 +64,7 @@ class NmVybeAudioHandler extends BaseAudioHandler
   AudioServiceShuffleMode _shuffleMode = AudioServiceShuffleMode.none;
   final Map<int, double> _equalizerGainOverrides = <int, double>{};
   bool _equalizerEnabled = true;
+  bool _recoveringFromPlaybackError = false;
 
   AudioPlayer get player => _player;
   int get currentIndex => _currentIndex;
@@ -70,6 +73,7 @@ class NmVybeAudioHandler extends BaseAudioHandler
   Stream<Duration> get positionStream => _player.positionStream;
   Stream<Duration?> get durationStream => _player.durationStream;
   Stream<Duration> get bufferedPositionStream => _player.bufferedPositionStream;
+  Stream<String> get playbackErrorStream => _playbackErrorController.stream;
   Duration get position => _player.position;
   Duration? get duration => _player.duration;
   bool get isPlaying => _player.playing;
@@ -78,8 +82,16 @@ class NmVybeAudioHandler extends BaseAudioHandler
   bool get equalizerEnabled => _equalizerEnabled;
 
   // ------------------------------------------------------------------- queue
-  AudioSource _sourceFor(MediaItem item) =>
-      AudioSource.file(_pathOf(item), tag: item);
+  AudioSource _sourceFor(MediaItem item) {
+    final path = _pathOf(item);
+    final uri = Uri.tryParse(path);
+    if (uri != null &&
+        (uri.scheme == 'https' || uri.scheme == 'http') &&
+        uri.host.isNotEmpty) {
+      return AudioSource.uri(uri, tag: item);
+    }
+    return AudioSource.file(path, tag: item);
+  }
 
   /// Replaces the whole queue and starts playing [initialIndex].
   Future<void> setQueue(
@@ -91,7 +103,6 @@ class NmVybeAudioHandler extends BaseAudioHandler
     _queue = List<MediaItem>.of(items);
     queue.add(_queue);
     if (_queue.isEmpty) {
-      _playlist = null;
       mediaItem.add(null);
       await _player.stop();
       return;
@@ -100,15 +111,34 @@ class NmVybeAudioHandler extends BaseAudioHandler
     _currentIndex = safeIndex;
     mediaItem.add(_queue[safeIndex]);
 
-    final playlist = ConcatenatingAudioSource(
-      children: _queue.map(_sourceFor).toList(growable: false),
-    );
-    _playlist = playlist;
-    await _player.setAudioSource(
-      playlist,
-      initialIndex: safeIndex,
-      initialPosition: initialPosition,
-    );
+    final sources = _queue.map(_sourceFor).toList(growable: false);
+    var playableIndex = safeIndex;
+    while (true) {
+      try {
+        await _player.setAudioSources(
+          sources,
+          initialIndex: playableIndex,
+          initialPosition: playableIndex == safeIndex ? initialPosition : null,
+        );
+        _currentIndex = playableIndex;
+        mediaItem.add(_queue[playableIndex]);
+        break;
+      } catch (error, stackTrace) {
+        _log.w(
+          'Could not load "${_queue[playableIndex].title}"; trying the next track',
+          error,
+          stackTrace,
+        );
+        playableIndex++;
+        if (playableIndex >= _queue.length) {
+          mediaItem.add(null);
+          await _player.stop();
+          rethrow;
+        }
+        _currentIndex = playableIndex;
+        mediaItem.add(_queue[playableIndex]);
+      }
+    }
     if (autoPlay) {
       await _player.play();
     }
@@ -119,14 +149,11 @@ class NmVybeAudioHandler extends BaseAudioHandler
     bool playIfEmpty = true,
   }) async {
     if (items.isEmpty) return;
-    final playlist = _playlist;
-    if (playlist == null || _queue.isEmpty) {
+    if (_queue.isEmpty) {
       await setQueue(items, autoPlay: playIfEmpty);
       return;
     }
-    for (final item in items) {
-      await playlist.add(_sourceFor(item));
-    }
+    await _player.addAudioSources(items.map(_sourceFor).toList());
     _queue = <MediaItem>[..._queue, ...items];
     queue.add(_queue);
   }
@@ -134,14 +161,13 @@ class NmVybeAudioHandler extends BaseAudioHandler
   /// Inserts [items] right after the currently playing item.
   Future<void> addNext(List<MediaItem> items) async {
     if (items.isEmpty) return;
-    final playlist = _playlist;
-    if (playlist == null || _queue.isEmpty) {
+    if (_queue.isEmpty) {
       await setQueue(items);
       return;
     }
     var insertAt = _currentIndex + 1;
     for (final item in items) {
-      await playlist.insert(insertAt, _sourceFor(item));
+      await _player.insertAudioSource(insertAt, _sourceFor(item));
       insertAt++;
     }
     _queue = <MediaItem>[
@@ -155,15 +181,12 @@ class NmVybeAudioHandler extends BaseAudioHandler
   @override
   Future<void> removeQueueItemAt(int index) async {
     if (index < 0 || index >= _queue.length) return;
-    final playlist = _playlist;
     final newQueue = List<MediaItem>.of(_queue)..removeAt(index);
     if (newQueue.isEmpty) {
       await clearQueue();
       return;
     }
-    if (playlist != null) {
-      await playlist.removeAt(index);
-    }
+    await _player.removeAudioSourceAt(index);
     _queue = newQueue;
     queue.add(_queue);
   }
@@ -176,10 +199,7 @@ class NmVybeAudioHandler extends BaseAudioHandler
         from == to) {
       return;
     }
-    final playlist = _playlist;
-    if (playlist != null) {
-      await playlist.move(from, to);
-    }
+    await _player.moveAudioSource(from, to);
     final newQueue = List<MediaItem>.of(_queue);
     final item = newQueue.removeAt(from);
     newQueue.insert(to, item);
@@ -190,7 +210,6 @@ class NmVybeAudioHandler extends BaseAudioHandler
   Future<void> clearQueue() async {
     _queue = const [];
     _currentIndex = 0;
-    _playlist = null;
     queue.add(const []);
     mediaItem.add(null);
     await _player.stop();
@@ -204,6 +223,66 @@ class NmVybeAudioHandler extends BaseAudioHandler
     if (index == _currentIndex) return;
     _currentIndex = index;
     mediaItem.add(_queue[index]);
+  }
+
+  void _onPlaybackError(PlayerException error) {
+    final failedIndex = error.index ?? _player.currentIndex ?? _currentIndex;
+    if (failedIndex < 0 || failedIndex >= _queue.length) {
+      _log.e('Audio playback failed', error);
+      _playbackErrorController.add('Audio playback failed.');
+      return;
+    }
+    unawaited(_skipFailedTrack(failedIndex, error));
+  }
+
+  Future<void> _skipFailedTrack(int failedIndex, Object error) async {
+    if (_recoveringFromPlaybackError) return;
+    _recoveringFromPlaybackError = true;
+    try {
+      _log.w(
+        'Playback failed for "${_queue[failedIndex].title}"; skipping it',
+        error,
+      );
+      final failedTitle = _queue[failedIndex].title;
+      for (
+        var nextIndex = failedIndex + 1;
+        nextIndex < _queue.length;
+        nextIndex++
+      ) {
+        try {
+          await _player.seek(Duration.zero, index: nextIndex);
+          _currentIndex = nextIndex;
+          mediaItem.add(_queue[nextIndex]);
+          if (!_player.playing) {
+            unawaited(
+              _player.play().catchError((Object playError, StackTrace trace) {
+                _log.e(
+                  'Could not resume playback after skipping a track',
+                  playError,
+                  trace,
+                );
+              }),
+            );
+          }
+          _playbackErrorController.add(
+            'Could not play "$failedTitle". Skipped to "${_queue[nextIndex].title}".',
+          );
+          return;
+        } catch (seekError, stackTrace) {
+          _log.w(
+            'Could not start "${_queue[nextIndex].title}"; trying the next track',
+            seekError,
+            stackTrace,
+          );
+        }
+      }
+      await _player.pause();
+      _playbackErrorController.add(
+        'Could not play "$failedTitle". No playable track remains in the queue.',
+      );
+    } finally {
+      _recoveringFromPlaybackError = false;
+    }
   }
 
   // -------------------------------------------------------------- transport

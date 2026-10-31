@@ -1,9 +1,139 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path/path.dart' as p;
 
 import '../constants/app_constants.dart';
 import '../constants/theme_constants.dart';
+import 'app_storage.dart';
+import '../utils/logger.dart';
+
+/// Shared app preferences with a file-backed Windows fallback.
+///
+/// The fallback is used when Windows denies the roaming profile folder. It
+/// stores the same Flutter-prefixed keys beside the app database, preserving
+/// existing SharedPreferences values when the legacy file was migrated.
+class AppPreferences {
+  AppPreferences._({
+    this._sharedPreferences,
+    Map<String, Object?> values = const <String, Object?>{},
+    this._file,
+  }) : _values = Map<String, Object?>.of(values);
+
+  static const AppLogger _log = AppLogger('AppPreferences');
+  static const String _pluginPrefix = 'flutter.';
+
+  final SharedPreferences? _sharedPreferences;
+  final Map<String, Object?> _values;
+  final File? _file;
+  Future<void> _pendingWrite = Future<void>.value();
+
+  static Future<AppPreferences> open() async {
+    try {
+      return AppPreferences._(
+        sharedPreferences: await SharedPreferences.getInstance(),
+      );
+    } catch (error, stackTrace) {
+      if (!Platform.isWindows) rethrow;
+      _log.w(
+        'Windows preferences unavailable; using local app storage',
+        error,
+        stackTrace,
+      );
+    }
+
+    final directory = await AppStorage.supportDirectory();
+    final file = File(p.join(directory.path, 'shared_preferences.json'));
+    Map<String, Object?> values = <String, Object?>{};
+    if (await file.exists()) {
+      try {
+        final decoded = jsonDecode(await file.readAsString());
+        if (decoded is Map) values = Map<String, Object?>.from(decoded);
+      } catch (error, stackTrace) {
+        final backup = File(
+          '${file.path}.corrupt_${DateTime.now().millisecondsSinceEpoch}',
+        );
+        try {
+          await file.rename(backup.path);
+          _log.w(
+            'Moved invalid preferences aside to ${backup.path}',
+            error,
+            stackTrace,
+          );
+        } catch (renameError, renameStackTrace) {
+          _log.w(
+            'Could not recover invalid preferences',
+            renameError,
+            renameStackTrace,
+          );
+        }
+      }
+    }
+    return AppPreferences._(values: values, file: file);
+  }
+
+  String _key(String key) => '$_pluginPrefix$key';
+
+  String? getString(String key) {
+    final value = _sharedPreferences?.getString(key) ?? _values[_key(key)];
+    return value is String ? value : null;
+  }
+
+  bool? getBool(String key) {
+    final value = _sharedPreferences?.getBool(key) ?? _values[_key(key)];
+    return value is bool ? value : null;
+  }
+
+  int? getInt(String key) {
+    final value = _sharedPreferences?.getInt(key) ?? _values[_key(key)];
+    return value is int ? value : null;
+  }
+
+  List<String>? getStringList(String key) {
+    final value = _sharedPreferences?.getStringList(key) ?? _values[_key(key)];
+    if (value is! List || value.any((item) => item is! String)) return null;
+    return value.cast<String>();
+  }
+
+  Future<bool> setString(String key, String value) =>
+      _set(key, value, (prefs) => prefs.setString(key, value));
+
+  Future<bool> setBool(String key, bool value) =>
+      _set(key, value, (prefs) => prefs.setBool(key, value));
+
+  Future<bool> setInt(String key, int value) =>
+      _set(key, value, (prefs) => prefs.setInt(key, value));
+
+  Future<bool> setStringList(String key, List<String> value) => _set(
+    key,
+    List<String>.of(value),
+    (prefs) => prefs.setStringList(key, value),
+  );
+
+  Future<bool> _set(
+    String key,
+    Object value,
+    Future<bool> Function(SharedPreferences) sharedSetter,
+  ) async {
+    final shared = _sharedPreferences;
+    if (shared != null) return sharedSetter(shared);
+
+    _values[_key(key)] = value;
+    final file = _file;
+    if (file == null) return false;
+    final encoded = jsonEncode(_values);
+    _pendingWrite = _pendingWrite.then((_) async {
+      await file.parent.create(recursive: true);
+      await file.writeAsString(encoded, flush: true);
+    });
+    await _pendingWrite;
+    return true;
+  }
+}
 
 /// How the song list is ordered on the Library screen.
 enum SongsSortMode {
@@ -17,12 +147,13 @@ enum SongsSortMode {
   final String label;
 }
 
-/// Everything the user can tweak. Persisted with shared_preferences.
+/// Everything the user can tweak. Persisted using [AppPreferences].
 @immutable
 class AppSettings {
   const AppSettings({
     this.themeMode = ThemeMode.system,
     this.useDynamicColor = false,
+    this.usePureBlackTheme = false,
     this.seedColorValue = ThemeConstants.defaultSeedValue,
     this.libraryFolders = const <String>[],
     this.songsSortMode = SongsSortMode.title,
@@ -30,12 +161,15 @@ class AppSettings {
     this.autoScanOnStartup = true,
     this.showLyricsInPlayer = true,
     this.onboardingComplete = false,
+    this.wifiOnlyDownloads = false,
+    this.downloadStorageLimitMb = 1024,
   });
 
   final ThemeMode themeMode;
 
   /// Use the Android 12+ system wallpaper palette when available.
   final bool useDynamicColor;
+  final bool usePureBlackTheme;
   final int seedColorValue;
 
   /// Desktop folders to scan. Empty means "detect the default music folder".
@@ -46,12 +180,15 @@ class AppSettings {
   final bool autoScanOnStartup;
   final bool showLyricsInPlayer;
   final bool onboardingComplete;
+  final bool wifiOnlyDownloads;
+  final int downloadStorageLimitMb;
 
   Color get seedColor => Color(seedColorValue);
 
   AppSettings copyWith({
     ThemeMode? themeMode,
     bool? useDynamicColor,
+    bool? usePureBlackTheme,
     int? seedColorValue,
     List<String>? libraryFolders,
     SongsSortMode? songsSortMode,
@@ -59,10 +196,13 @@ class AppSettings {
     bool? autoScanOnStartup,
     bool? showLyricsInPlayer,
     bool? onboardingComplete,
+    bool? wifiOnlyDownloads,
+    int? downloadStorageLimitMb,
   }) {
     return AppSettings(
       themeMode: themeMode ?? this.themeMode,
       useDynamicColor: useDynamicColor ?? this.useDynamicColor,
+      usePureBlackTheme: usePureBlackTheme ?? this.usePureBlackTheme,
       seedColorValue: seedColorValue ?? this.seedColorValue,
       libraryFolders: libraryFolders ?? this.libraryFolders,
       songsSortMode: songsSortMode ?? this.songsSortMode,
@@ -70,6 +210,8 @@ class AppSettings {
       autoScanOnStartup: autoScanOnStartup ?? this.autoScanOnStartup,
       showLyricsInPlayer: showLyricsInPlayer ?? this.showLyricsInPlayer,
       onboardingComplete: onboardingComplete ?? this.onboardingComplete,
+      wifiOnlyDownloads: wifiOnlyDownloads ?? this.wifiOnlyDownloads,
+      downloadStorageLimitMb: downloadStorageLimitMb ?? this.downloadStorageLimitMb,
     );
   }
 }
@@ -78,11 +220,13 @@ class AppSettings {
 class SettingsController extends StateNotifier<AppSettings> {
   SettingsController(this._prefs) : super(_read(_prefs));
 
-  final SharedPreferences _prefs;
+  final AppPreferences _prefs;
 
   static const String _themeModeKey = '${AppConstants.prefsPrefix}themeMode';
   static const String _dynamicColorKey =
       '${AppConstants.prefsPrefix}useDynamicColor';
+  static const String _pureBlackKey =
+      '${AppConstants.prefsPrefix}usePureBlackTheme';
   static const String _seedColorKey = '${AppConstants.prefsPrefix}seedColor';
   static const String _libraryFoldersKey =
       '${AppConstants.prefsPrefix}libraryFolders';
@@ -93,8 +237,12 @@ class SettingsController extends StateNotifier<AppSettings> {
   static const String _showLyricsKey = '${AppConstants.prefsPrefix}showLyrics';
   static const String _onboardingKey =
       '${AppConstants.prefsPrefix}onboardingComplete';
+  static const String _wifiOnlyDownloadsKey =
+      '${AppConstants.prefsPrefix}wifiOnlyDownloads';
+  static const String _downloadStorageLimitMbKey =
+      '${AppConstants.prefsPrefix}downloadStorageLimitMb';
 
-  static AppSettings _read(SharedPreferences prefs) {
+  static AppSettings _read(AppPreferences prefs) {
     final themeModeName = prefs.getString(_themeModeKey);
     final sortModeName = prefs.getString(_sortModeKey);
     return AppSettings(
@@ -103,6 +251,7 @@ class SettingsController extends StateNotifier<AppSettings> {
         orElse: () => ThemeMode.system,
       ),
       useDynamicColor: prefs.getBool(_dynamicColorKey) ?? false,
+      usePureBlackTheme: prefs.getBool(_pureBlackKey) ?? false,
       seedColorValue:
           prefs.getInt(_seedColorKey) ?? ThemeConstants.defaultSeedValue,
       libraryFolders: prefs.getStringList(_libraryFoldersKey) ?? const [],
@@ -114,6 +263,8 @@ class SettingsController extends StateNotifier<AppSettings> {
       autoScanOnStartup: prefs.getBool(_autoScanKey) ?? true,
       showLyricsInPlayer: prefs.getBool(_showLyricsKey) ?? true,
       onboardingComplete: prefs.getBool(_onboardingKey) ?? false,
+      wifiOnlyDownloads: prefs.getBool(_wifiOnlyDownloadsKey) ?? false,
+      downloadStorageLimitMb: prefs.getInt(_downloadStorageLimitMbKey) ?? 1024,
     );
   }
 
@@ -125,6 +276,11 @@ class SettingsController extends StateNotifier<AppSettings> {
   Future<void> setUseDynamicColor(bool enabled) async {
     state = state.copyWith(useDynamicColor: enabled);
     await _prefs.setBool(_dynamicColorKey, enabled);
+  }
+
+  Future<void> setUsePureBlackTheme(bool enabled) async {
+    state = state.copyWith(usePureBlackTheme: enabled);
+    await _prefs.setBool(_pureBlackKey, enabled);
   }
 
   Future<void> setSeedColorValue(int value) async {
@@ -160,5 +316,15 @@ class SettingsController extends StateNotifier<AppSettings> {
   Future<void> completeOnboarding() async {
     state = state.copyWith(onboardingComplete: true);
     await _prefs.setBool(_onboardingKey, true);
+  }
+
+  Future<void> setWifiOnlyDownloads(bool enabled) async {
+    state = state.copyWith(wifiOnlyDownloads: enabled);
+    await _prefs.setBool(_wifiOnlyDownloadsKey, enabled);
+  }
+
+  Future<void> setDownloadStorageLimitMb(int megabytes) async {
+    state = state.copyWith(downloadStorageLimitMb: megabytes);
+    await _prefs.setInt(_downloadStorageLimitMbKey, megabytes);
   }
 }

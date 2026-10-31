@@ -1,15 +1,28 @@
 import 'package:flutter/material.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/constants/theme_constants.dart';
 import '../../../core/providers/app_providers.dart';
+import '../../../core/services/artwork_service.dart';
+import '../../../data/repositories/music_providers.dart';
+import '../../../core/services/settings_service.dart';
 import '../../../core/services/update_service.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/utils/platform_info.dart';
+import '../../../shared/widgets/album_art.dart';
+import '../../library/controllers/scan_controller.dart';
+import '../../library/models/song_model.dart';
+import '../../player/controllers/player_controller.dart';
+import '../controllers/equalizer_controller.dart';
 
+part 'settings_page_sections.dart';
+part 'settings_page_widgets.dart';
 
+/// Everything the user can tune: appearance, library scanning, playback
+/// (including the Android equalizer) and about/updates.
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
 
@@ -19,328 +32,435 @@ class SettingsPage extends ConsumerStatefulWidget {
 
 class _SettingsPageState extends ConsumerState<SettingsPage> {
   final UpdateService _updateService = UpdateService();
-  String _version = '';
+
+  String _version = AppConstants.appVersion;
+  bool _loadingVersion = true;
   bool _checkingUpdate = false;
+  bool _clearingLibrary = false;
+  int _artworkBytes = 0;
+  int _downloadBytes = 0;
 
   @override
   void initState() {
     super.initState();
     _loadVersion();
+    _loadArtworkSize();
+    _loadDownloadSize();
   }
 
   Future<void> _loadVersion() async {
     try {
       final info = await PackageInfo.fromPlatform();
-      if (mounted) setState(() => _version = info.version);
+      if (!mounted) return;
+      setState(() {
+        _version = info.version;
+        _loadingVersion = false;
+      });
     } catch (_) {
-      if (mounted) setState(() => _version = AppConstants.appVersion);
+      if (!mounted) return;
+      setState(() => _loadingVersion = false);
+    }
+  }
+
+  Future<void> _loadArtworkSize() async {
+    try {
+      final bytes = await ref.read(artworkServiceProvider).sizeBytes();
+      if (!mounted) return;
+      setState(() => _artworkBytes = bytes);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _artworkBytes = 0);
+    }
+  }
+
+  Future<void> _loadDownloadSize() async {
+    try {
+      final bytes = await ref.read(internetArchiveServiceProvider).downloadedBytes();
+      if (mounted) setState(() => _downloadBytes = bytes);
+    } catch (_) {
+      if (mounted) setState(() => _downloadBytes = 0);
+    }
+  }
+
+  Future<void> _deleteDownloads() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete offline downloads?'),
+        content: const Text('This permanently removes all Internet Archive downloads from this device.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Delete downloads')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await ref.read(internetArchiveServiceProvider).deleteDownloads();
+      final songs = ref.read(songsProvider).value ?? const <Song>[];
+      await ref.read(libraryRepositoryProvider).deleteSongs(
+        songs.where((song) => song.isDownloaded && song.source == 'internet_archive')
+            .map((song) => song.id),
+      );
+      await _loadDownloadSize();
+      _showSnack('Offline downloads deleted');
+    } catch (error) {
+      _showSnack('Could not delete downloads: $error');
+    }
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  // ----------------------------------------------------------- library actions
+  Future<void> _runScan() async {
+    try {
+      await ref.read(scanControllerProvider.notifier).scanLibrary();
+      await _loadArtworkSize();
+    } catch (error) {
+      _showSnack('Scan failed: $error');
+    }
+  }
+
+  Future<void> _addFolder() async {
+    try {
+      await ref.read(scanControllerProvider.notifier).addFolder();
+    } catch (error) {
+      _showSnack('Could not add a folder: $error');
+    }
+  }
+
+  Future<void> _removeFolder(String folder) async {
+    final current = ref.read(settingsControllerProvider);
+    final updated = current.libraryFolders
+        .where((item) => item != folder)
+        .toList(growable: false);
+    try {
+      await ref
+          .read(settingsControllerProvider.notifier)
+          .setLibraryFolders(updated);
+      _showSnack('Folder removed — scan again to refresh your library');
+    } catch (error) {
+      _showSnack('Could not update folders: $error');
+    }
+  }
+
+  Future<void> _clearLibrary() async {
+    final songs = ref.read(songsProvider).value ?? const <Song>[];
+    final playlists = ref.read(playlistsProvider).value?.length ?? 0;
+    final scheme = Theme.of(context).colorScheme;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Clear library?'),
+        content: Text(
+          'This removes ${songs.length} ${songs.length == 1 ? 'song' : 'songs'} '
+          'and $playlists ${playlists == 1 ? 'playlist' : 'playlists'} from '
+          'NM VYBE. Your audio files stay exactly where they are.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: scheme.error,
+              foregroundColor: scheme.onError,
+            ),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Clear library'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _clearingLibrary = true);
+    try {
+      await ref.read(scanControllerProvider.notifier).clearLibrary();
+      await _loadArtworkSize();
+      _showSnack('Library cleared');
+    } catch (error) {
+      _showSnack('Could not clear the library: $error');
+    } finally {
+      if (mounted) setState(() => _clearingLibrary = false);
     }
   }
 
   Future<void> _checkForUpdates() async {
     setState(() => _checkingUpdate = true);
     try {
-      final info = await _updateService.checkForUpdates();
+      await _updateService.openStoreUpdates();
       if (!mounted) return;
-      setState(() => _checkingUpdate = false);
-      if (!info.hasUpdate) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('You are on the latest NM VYBE.')),
-        );
-        return;
-      }
-      await showDialog<void>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text('Update to v${info.latestVersion}'),
-          content: Text(info.releaseNotes),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Later'),
-            ),
-            FilledButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                _updateService.executeUpdate(info.downloadUrl, (status) {
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(context)
-                      .showSnackBar(SnackBar(content: Text(status)));
-                });
-              },
-              child: const Text('Update now'),
-            ),
-          ],
-        ),
-      );
+      _showSnack('Opened your app store. Updates are managed there.');
     } catch (error) {
       if (!mounted) return;
-      setState(() => _checkingUpdate = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Update check failed: $error')),
-      );
+      _showSnack('Update check failed: $error');
+    } finally {
+      if (mounted) setState(() => _checkingUpdate = false);
     }
   }
 
+  // ------------------------------------------------------------- sheet actions
+  Future<void> _showSpeedSheet() async {
+    final current = ref.read(playerControllerProvider).speed;
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  ThemeConstants.spacing24,
+                  ThemeConstants.spacing4,
+                  ThemeConstants.spacing8,
+                  ThemeConstants.spacing4,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Playback speed',
+                        style: theme.textTheme.titleLarge,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Close',
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () => Navigator.of(sheetContext).pop(),
+                    ),
+                  ],
+                ),
+              ),
+              for (final speed in const [0.5, 0.75, 1.0, 1.25, 1.5, 2.0])
+                ListTile(
+                  leading: const Icon(Icons.speed_rounded),
+                  title: Text(formatPlaybackSpeed(speed)),
+                  trailing: speed == current
+                      ? Icon(
+                          Icons.check_rounded,
+                          color: theme.colorScheme.primary,
+                        )
+                      : null,
+                  selected: speed == current,
+                  onTap: () {
+                    ref.read(playerControllerProvider.notifier).setSpeed(speed);
+                    Navigator.of(sheetContext).pop();
+                  },
+                ),
+              const SizedBox(height: ThemeConstants.spacing8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showSleepTimerSheet() async {
+    final player = ref.read(playerControllerProvider);
+    final remaining = player.sleepTimerRemaining;
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  ThemeConstants.spacing24,
+                  ThemeConstants.spacing4,
+                  ThemeConstants.spacing8,
+                  ThemeConstants.spacing4,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Sleep timer',
+                            style: theme.textTheme.titleLarge,
+                          ),
+                          if (remaining != null)
+                            Text(
+                              'Stops in ${formatDuration(remaining)}',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Close',
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () => Navigator.of(sheetContext).pop(),
+                    ),
+                  ],
+                ),
+              ),
+              for (final minutes in const [5, 10, 15, 30, 45, 60])
+                ListTile(
+                  leading: const Icon(Icons.bedtime_outlined),
+                  title: Text('$minutes minutes'),
+                  onTap: () {
+                    ref
+                        .read(playerControllerProvider.notifier)
+                        .setSleepTimer(Duration(minutes: minutes));
+                    Navigator.of(sheetContext).pop();
+                  },
+                ),
+              ListTile(
+                leading: const Icon(Icons.close_rounded),
+                title: const Text('Turn off'),
+                enabled: remaining != null,
+                onTap: () {
+                  ref
+                      .read(playerControllerProvider.notifier)
+                      .setSleepTimer(null);
+                  Navigator.of(sheetContext).pop();
+                },
+              ),
+              const SizedBox(height: ThemeConstants.spacing8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showEqualizerSheet() {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => const FractionallySizedBox(
+        heightFactor: 0.92,
+        child: _EqualizerSheet(),
+      ),
+    );
+  }
+
+  // -------------------------------------------------------------------- build
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final width = MediaQuery.sizeOf(context).width;
+    final isWide = width >= 900;
+    final sidePadding = width >= 1000
+        ? ((width - 960) / 2).clamp(24.0, 480.0)
+        : (width >= 600 ? 24.0 : 16.0);
+
     final settings = ref.watch(settingsControllerProvider);
     final settingsController = ref.read(settingsControllerProvider.notifier);
-    final lastScan = ref.watch(lastScanTimeProvider).valueOrNull;
     final player = ref.watch(playerControllerProvider);
+    final scanState = ref.watch(scanControllerProvider);
+    final songs = ref.watch(songsProvider).value ?? const <Song>[];
+    final lastScan =
+        scanState.lastScan ?? ref.watch(lastScanTimeProvider).value;
+
+    final appearance = _appearanceSection(
+      context,
+      settings: settings,
+      controller: settingsController,
+    );
+    final library = _librarySection(
+      context,
+      settings: settings,
+      controller: settingsController,
+      scanState: scanState,
+      songs: songs,
+      lastScan: lastScan,
+    );
+    final playback = _playbackSection(context, player: player);
+    final about = _aboutSection(context);
+    final downloads = _downloadsSection(
+      context,
+      settings: settings,
+      controller: settingsController,
+      usedBytes: _downloadBytes,
+      onDelete: _deleteDownloads,
+    );
+
+    final content = isWide
+        ? Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: Column(children: [appearance, library])),
+              const SizedBox(width: ThemeConstants.spacing24),
+              Expanded(child: Column(children: [playback, downloads, about])),
+            ],
+          )
+        : Column(children: [appearance, library, playback, downloads, about]);
 
     return Scaffold(
       body: CustomScrollView(
         slivers: [
-          SliverAppBar(
-            floating: true,
-            snap: true,
-            title: Text('Settings', style: theme.textTheme.headlineSmall),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                sidePadding,
+                ThemeConstants.spacing8,
+                sidePadding,
+                ThemeConstants.spacing16,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    AppConstants.appName.toUpperCase(),
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      letterSpacing: 2.6,
+                      fontWeight: FontWeight.w800,
+                      color: scheme.primary,
+                    ),
+                  ),
+                  const SizedBox(height: ThemeConstants.spacing8),
+                  Text(
+                    'Settings',
+                    style: theme.textTheme.headlineMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.8,
+                    ),
+                  ),
+                  const SizedBox(height: ThemeConstants.spacing8),
+                  Text(
+                    'Shape how NM VYBE looks, scans and plays.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
-          SliverList(
-            delegate: SliverChildListDelegate([
-              const _SectionHeader(title: 'Appearance'),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: SegmentedButton<ThemeMode>(
-                  segments: const [
-                    ButtonSegment(
-                      value: ThemeMode.system,
-                      icon: Icon(Icons.brightness_auto_outlined),
-                      label: Text('Auto'),
-                    ),
-                    ButtonSegment(
-                      value: ThemeMode.light,
-                      icon: Icon(Icons.light_mode_outlined),
-                      label: Text('Light'),
-                    ),
-                    ButtonSegment(
-                      value: ThemeMode.dark,
-                      icon: Icon(Icons.dark_mode_outlined),
-                      label: Text('Dark'),
-                    ),
-                  ],
-                  selected: {settings.themeMode},
-                  onSelectionChanged: (selection) =>
-                      settingsController.setThemeMode(selection.first),
+          SliverPadding(
+            padding: EdgeInsets.symmetric(horizontal: sidePadding),
+            sliver: SliverToBoxAdapter(
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1000),
+                  child: content,
                 ),
               ),
-              const SizedBox(height: 12),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    for (var i = 0; i < ThemeConstants.accentValues.length; i++)
-                      _AccentDot(
-                        color: Color(ThemeConstants.accentValues[i]),
-                        selected:
-                            settings.seedColorValue == ThemeConstants.accentValues[i],
-                        onTap: () => settingsController
-                            .setSeedColorValue(ThemeConstants.accentValues[i]),
-                        tooltip: ThemeConstants.accentNames[i],
-                      ),
-                  ],
-                ),
-              ),
-              if (PlatformInfo.supportsBackgroundAudio)
-                SwitchListTile(
-                  title: const Text('Dynamic colour'),
-                  subtitle:
-                      const Text('Match the accent to your wallpaper (Android 12+)'),
-                  value: settings.useDynamicColor,
-                  onChanged: settingsController.setUseDynamicColor,
-                ),
-              const Divider(height: 32),
-              const _SectionHeader(title: 'Library'),
-              ListTile(
-                leading: const Icon(Icons.folder_open),
-                title: const Text('Music folders'),
-                subtitle: Text(
-                  settings.libraryFolders.isEmpty
-                      ? 'Default music folder'
-                      : '${settings.libraryFolders.length} folder(s)',
-                ),
-              ),
-              SwitchListTile(
-                title: const Text('Scan on launch'),
-                subtitle: const Text('Pick up new files automatically'),
-                value: settings.autoScanOnStartup,
-                onChanged: settingsController.setAutoScanOnStartup,
-              ),
-              ListTile(
-                leading: const Icon(Icons.refresh),
-                title: const Text('Last scan'),
-                subtitle: Text(
-                  lastScan == null ? 'Never scanned' : formatRelativeDate(lastScan),
-                ),
-              ),
-              const Divider(height: 32),
-              const _SectionHeader(title: 'Player'),
-              ListTile(
-                leading: const Icon(Icons.speed),
-                title: const Text('Playback speed'),
-                subtitle: Text(formatPlaybackSpeed(player.speed)),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => _showSpeedSheet(context),
-              ),
-              ListTile(
-                leading: const Icon(Icons.bedtime_outlined),
-                title: const Text('Sleep timer'),
-                subtitle: Text(
-                  player.sleepTimerRemaining == null
-                      ? 'Off'
-                      : 'Stops in ${formatDuration(player.sleepTimerRemaining!)}',
-                ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => _showSleepTimerSheet(context),
-              ),
-              const Divider(height: 32),
-              const _SectionHeader(title: 'About'),
-              ListTile(
-                leading: const Icon(Icons.system_update_alt),
-                title: const Text('Check for updates'),
-                subtitle: Text('NM VYBE v$_version'),
-                trailing: _checkingUpdate
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.chevron_right),
-                onTap: _checkingUpdate ? null : _checkForUpdates,
-              ),
-              const ListTile(
-                leading: Icon(Icons.code),
-                title: Text('Open source'),
-                subtitle: Text('Free software. No ads. No tracking.'),
-              ),
-              const SizedBox(height: 24),
-            ]),
+            ),
+          ),
+          const SliverToBoxAdapter(
+            child: SizedBox(height: ThemeConstants.spacing32),
           ),
         ],
-      ),
-    );
-  }
-
-  Future<void> _showSpeedSheet(BuildContext context) async {
-    final controller = ref.read(playerControllerProvider.notifier);
-    await showModalBottomSheet<void>(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final speed in const [0.75, 1.0, 1.25, 1.5, 2.0])
-              ListTile(
-                title: Text(formatPlaybackSpeed(speed)),
-                trailing: ref.watch(playerControllerProvider).speed == speed
-                    ? const Icon(Icons.check)
-                    : null,
-                onTap: () {
-                  controller.setSpeed(speed);
-                  Navigator.of(context).pop();
-                },
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _showSleepTimerSheet(BuildContext context) async {
-    final controller = ref.read(playerControllerProvider.notifier);
-    await showModalBottomSheet<void>(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final minutes in const [15, 30, 45, 60])
-              ListTile(
-                leading: const Icon(Icons.bedtime_outlined),
-                title: Text('$minutes minutes'),
-                onTap: () {
-                  controller.setSleepTimer(Duration(minutes: minutes));
-                  Navigator.of(context).pop();
-                },
-              ),
-            ListTile(
-              leading: const Icon(Icons.close),
-              title: const Text('Turn off'),
-              onTap: () {
-                controller.setSleepTimer(null);
-                Navigator.of(context).pop();
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.title});
-
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
-      child: Text(
-        title.toUpperCase(),
-        style: theme.textTheme.labelSmall?.copyWith(
-          letterSpacing: 1.4,
-          fontWeight: FontWeight.w700,
-          color: theme.colorScheme.primary,
-        ),
-      ),
-    );
-  }
-}
-
-class _AccentDot extends StatelessWidget {
-  const _AccentDot({
-    required this.color,
-    required this.selected,
-    required this.onTap,
-    required this.tooltip,
-  });
-
-  final Color color;
-  final bool selected;
-  final VoidCallback onTap;
-  final String tooltip;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        onTap: onTap,
-        customBorder: const CircleBorder(),
-        child: Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-            border: selected
-                ? Border.all(
-                    color: Theme.of(context).colorScheme.onSurface,
-                    width: 3,
-                  )
-                : null,
-          ),
-          child: selected
-              ? const Icon(Icons.check, size: 20, color: Colors.white)
-              : null,
-        ),
       ),
     );
   }

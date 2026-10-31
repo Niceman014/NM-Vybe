@@ -24,6 +24,14 @@ class Song {
     this.lastPlayedAt,
     this.isFavorite = false,
     this.artworkKey,
+    this.source,
+    this.streamUrl,
+    this.downloadUrl,
+    this.externalPageUrl,
+    this.licenseUrl,
+    this.remoteArtworkUrl,
+    this.downloadAllowed = false,
+    this.isDownloaded = false,
   });
 
   final String id;
@@ -47,16 +55,32 @@ class Song {
   /// Identifier for the cached artwork file (album level), if any.
   final String? artworkKey;
 
-  String get displayTitle =>
-      title.trim().isEmpty ? p.basenameWithoutExtension(filePath) : title.trim();
+  /// Catalog that supplied this track, for example `jamendo`.
+  final String? source;
+  final String? streamUrl;
+  final String? downloadUrl;
+  final String? externalPageUrl;
+  final String? licenseUrl;
+  final String? remoteArtworkUrl;
+  final bool downloadAllowed;
+  final bool isDownloaded;
+
+  bool get isOnlineTrack => source != null && streamUrl != null;
+
+  String get displayTitle => title.trim().isEmpty
+      ? p.basenameWithoutExtension(filePath)
+      : title.trim();
 
   String get displayArtist =>
       artist.trim().isEmpty ? 'Unknown artist' : artist.trim();
 
-  String get displayAlbum => album.trim().isEmpty ? 'Unknown album' : album.trim();
+  String get displayAlbum =>
+      album.trim().isEmpty ? 'Unknown album' : album.trim();
 
   String get displayAlbumArtist {
-    final value = albumArtist.trim().isEmpty ? artist.trim() : albumArtist.trim();
+    final value = albumArtist.trim().isEmpty
+        ? artist.trim()
+        : albumArtist.trim();
     return value.isEmpty ? 'Unknown artist' : value;
   }
 
@@ -85,6 +109,14 @@ class Song {
     DateTime? lastPlayedAt,
     bool? isFavorite,
     String? artworkKey,
+    String? source,
+    String? streamUrl,
+    String? downloadUrl,
+    String? externalPageUrl,
+    String? licenseUrl,
+    String? remoteArtworkUrl,
+    bool? downloadAllowed,
+    bool? isDownloaded,
     bool clearArtwork = false,
   }) {
     return Song(
@@ -106,6 +138,14 @@ class Song {
       lastPlayedAt: lastPlayedAt ?? this.lastPlayedAt,
       isFavorite: isFavorite ?? this.isFavorite,
       artworkKey: clearArtwork ? null : (artworkKey ?? this.artworkKey),
+      source: source ?? this.source,
+      streamUrl: streamUrl ?? this.streamUrl,
+      downloadUrl: downloadUrl ?? this.downloadUrl,
+      externalPageUrl: externalPageUrl ?? this.externalPageUrl,
+      licenseUrl: licenseUrl ?? this.licenseUrl,
+      remoteArtworkUrl: remoteArtworkUrl ?? this.remoteArtworkUrl,
+      downloadAllowed: downloadAllowed ?? this.downloadAllowed,
+      isDownloaded: isDownloaded ?? this.isDownloaded,
     );
   }
 
@@ -129,6 +169,14 @@ class Song {
       'lastPlayedAt': lastPlayedAt?.millisecondsSinceEpoch,
       'isFavorite': isFavorite,
       'artworkKey': artworkKey,
+      'source': source,
+      'streamUrl': streamUrl,
+      'downloadUrl': downloadUrl,
+      'externalPageUrl': externalPageUrl,
+      'licenseUrl': licenseUrl,
+      'remoteArtworkUrl': remoteArtworkUrl,
+      'downloadAllowed': downloadAllowed,
+      'isDownloaded': isDownloaded,
     };
   }
 
@@ -162,6 +210,14 @@ class Song {
           : DateTime.fromMillisecondsSinceEpoch(lastPlayedAtMs),
       isFavorite: map['isFavorite'] == true,
       artworkKey: _asNullableString(map['artworkKey']),
+      source: _asNullableString(map['source']),
+      streamUrl: _asNullableString(map['streamUrl']),
+      downloadUrl: _asNullableString(map['downloadUrl']),
+      externalPageUrl: _asNullableString(map['externalPageUrl']),
+      licenseUrl: _asNullableString(map['licenseUrl']),
+      remoteArtworkUrl: _asNullableString(map['remoteArtworkUrl']),
+      downloadAllowed: map['downloadAllowed'] == true,
+      isDownloaded: map['isDownloaded'] == true,
     );
   }
 

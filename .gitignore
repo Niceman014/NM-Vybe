@@ -1,6 +1,7 @@
 # Miscellaneous
 *.class
 *.log
+*.dill
 *.pyc
 *.swp
 .DS_Store
@@ -31,7 +32,13 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 /build/
+/dist/
+/android/build/
+/android/.gradle/
+**/.gradle/
 /coverage/
+/.nm_vybe_data/
+/.tmp/
 
 # Symbolication related
 app.*.symbols
@@ -43,6 +50,18 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Local SDK paths and release credentials. Never commit signing keys or passwords.
+local.properties
+key.properties
+*.jks
+*.keystore
+
+# Per-developer Firebase configuration
+google-services.json
+.env
+.env.*
+!.env.example
 
 # Widget Preview related
 .widget_preview/

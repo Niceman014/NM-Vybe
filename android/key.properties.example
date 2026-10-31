@@ -1,0 +1,6 @@
+# Copy this file to android/key.properties and fill in the values locally.
+# Keep the keystore and this file out of source control.
+storePassword=REPLACE_WITH_STORE_PASSWORD
+keyPassword=REPLACE_WITH_KEY_PASSWORD
+keyAlias=REPLACE_WITH_KEY_ALIAS
+storeFile=../nm_vybe_upload.jks

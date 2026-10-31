@@ -1,222 +1,360 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/constants/app_constants.dart';
+import '../../../core/constants/theme_constants.dart';
+import '../../../core/models/library_groups.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/settings_service.dart';
+import '../../../core/utils/platform_info.dart';
 import '../../player/views/now_playing_page.dart';
+import '../controllers/scan_controller.dart';
 import '../models/song_model.dart';
+import '../widgets/add_to_playlist_sheet.dart';
+import '../widgets/collection_cards.dart';
+import '../widgets/empty_state.dart';
+import '../widgets/loading_skeleton.dart';
+import '../widgets/scan_status_banner.dart';
+import '../widgets/selection_bar.dart';
 import '../widgets/song_tile.dart';
+import 'album_detail_page.dart';
+import 'artist_detail_page.dart';
 
-/// Songs tab: the heart of the library.
-class LibraryPage extends ConsumerWidget {
+part 'library_page_header.dart';
+part 'library_page_content.dart';
+part 'library_page_widgets.dart';
+
+enum _LibraryTab { songs, albums, artists }
+
+/// The heart of NM VYBE: a roomy, artwork-forward library with songs, albums,
+/// artists and favourites, inline search, sorting and multi-select actions.
+class LibraryPage extends ConsumerStatefulWidget {
   const LibraryPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
+  ConsumerState<LibraryPage> createState() => _LibraryPageState();
+}
+
+class _LibraryPageState extends ConsumerState<LibraryPage> {
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+  Timer? _searchDebounce;
+
+  _LibraryTab _tab = _LibraryTab.songs;
+  bool _favouritesOnly = false;
+  bool _selectionMode = false;
+  final Set<String> _selectedIds = <String>{};
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchController.dispose();
+    _searchFocusNode.dispose();
+    super.dispose();
+  }
+
+  // ------------------------------------------------------------------ helpers
+  double _sidePadding(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    if (width >= 1000) return ((width - 960) / 2).clamp(24.0, 480.0);
+    return width >= 600 ? 24 : 16;
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 120), () {
+      if (mounted) ref.read(searchQueryProvider.notifier).state = value;
+    });
+  }
+
+  void _clearSearch() {
+    _searchDebounce?.cancel();
+    _searchController.clear();
+    _searchFocusNode.unfocus();
+    _onSearchChanged('');
+  }
+
+  void _startSelection(Song song) {
+    setState(() {
+      _selectionMode = true;
+      _selectedIds.add(song.id);
+    });
+  }
+
+  void _toggleSelected(String songId) {
+    setState(() {
+      if (!_selectedIds.add(songId)) _selectedIds.remove(songId);
+      if (_selectedIds.isEmpty) _selectionMode = false;
+    });
+  }
+
+  void _exitSelection() {
+    if (!mounted) return;
+    setState(() {
+      _selectionMode = false;
+      _selectedIds.clear();
+    });
+  }
+
+  void _showAllSongs() => setState(() => _favouritesOnly = false);
+
+  void _selectAll(List<Song> songs) {
+    setState(() {
+      _selectionMode = true;
+      _selectedIds
+        ..clear()
+        ..addAll(songs.map((song) => song.id));
+    });
+  }
+
+  void _onSongTap(List<Song> songs, int index, Song song) {
+    if (_selectionMode) {
+      _toggleSelected(song.id);
+      return;
+    }
+    unawaited(playSongsAndOpen(context, ref, songs, initialIndex: index));
+  }
+
+  // --------------------------------------------------------------- async work
+  Future<void> _scanLibrary() async {
+    try {
+      await ref.read(scanControllerProvider.notifier).scanLibrary();
+    } catch (error) {
+      _showSnack('Scan failed: $error');
+    }
+  }
+
+  Future<void> _addFolder() async {
+    try {
+      await ref.read(scanControllerProvider.notifier).addFolder();
+    } catch (error) {
+      _showSnack('Could not add a folder: $error');
+    }
+  }
+
+  Future<void> _favouriteSelected(List<Song> selectedSongs) async {
+    if (selectedSongs.isEmpty) return;
+    final repository = ref.read(libraryRepositoryProvider);
+    final shouldFavourite = !selectedSongs.every((song) => song.isFavorite);
+    for (final song in selectedSongs) {
+      if (song.isFavorite == shouldFavourite) continue;
+      await repository.updateSong(song.copyWith(isFavorite: shouldFavourite));
+    }
+    _exitSelection();
+    _showSnack(
+      shouldFavourite
+          ? 'Added ${selectedSongs.length} to favourites'
+          : 'Removed ${selectedSongs.length} from favourites',
+    );
+  }
+
+  Future<void> _queueSelected(List<Song> selectedSongs) async {
+    if (selectedSongs.isEmpty) return;
+    final player = ref.read(playerControllerProvider.notifier);
+    for (final song in selectedSongs) {
+      await player.addToQueue(song);
+    }
+    _exitSelection();
+    _showSnack(
+      selectedSongs.length == 1
+          ? 'Added 1 song to the queue'
+          : 'Added ${selectedSongs.length} songs to the queue',
+    );
+  }
+
+  Future<void> _addSelectedToPlaylist(List<Song> selectedSongs) async {
+    if (selectedSongs.isEmpty) return;
+    await showAddToPlaylistSheet(
+      context,
+      ref,
+      songIds: selectedSongs.map((song) => song.id).toList(growable: false),
+    );
+    _exitSelection();
+  }
+
+  // -------------------------------------------------------------------- build
+  @override
+  Widget build(BuildContext context) {
+    final sidePadding = _sidePadding(context);
+
     final songs = ref.watch(sortedSongsProvider);
+    final favourites = ref.watch(favoriteSongsProvider);
+    final albums = ref.watch(albumsProvider);
+    final artists = ref.watch(artistsProvider);
     final isLoading = ref.watch(isLoadingLibraryProvider);
     final error = ref.watch(libraryErrorProvider);
-    final settings = ref.watch(settingsControllerProvider);
+    final sortOptions = ref.watch(
+      settingsControllerProvider.select(
+        (settings) => (settings.songsSortMode, settings.songsSortAscending),
+      ),
+    );
+    final settingsController = ref.read(settingsControllerProvider.notifier);
+    final currentSongId = ref.watch(
+      playerControllerProvider.select((state) => state.current?.id),
+    );
+    final isPlaying = ref.watch(
+      playerControllerProvider.select((state) => state.playing),
+    );
+    final scanState = ref.watch(scanControllerProvider);
+    final query = ref.watch(searchQueryProvider);
+    final searchResults = ref.watch(searchResultsProvider);
+
+    ref.listen<ScanState>(scanControllerProvider, (previous, next) {
+      if (previous == null || !previous.scanning || next.scanning) return;
+      if (next.error != null) {
+        _showSnack('Scan failed: ${next.error}');
+        return;
+      }
+      if (!next.hasLibraryChanges) return;
+      final parts = <String>[
+        if (next.added > 0) '${next.added} added',
+        if (next.updated > 0) '${next.updated} updated',
+        if (next.removed > 0) '${next.removed} removed',
+      ];
+      if (parts.isNotEmpty) {
+        _showSnack('Library updated — ${parts.join(' · ')}');
+      }
+    });
+
+    final searching = query.trim().isNotEmpty;
+    final visibleSongs = searching
+        ? searchResults
+        : (_favouritesOnly ? favourites : songs);
+    final visibleAlbums = _favouritesOnly ? groupAlbums(favourites) : albums;
+    final visibleArtists = _favouritesOnly ? groupArtists(favourites) : artists;
+    final selectedSongs = songs
+        .where((song) => _selectedIds.contains(song.id))
+        .toList(growable: false);
+    final selectAllCandidates = searching
+        ? searchResults
+        : (_favouritesOnly ? favourites : songs);
+
+    final contentSlivers = _buildContent(
+      context: context,
+      sidePadding: sidePadding,
+      songs: songs,
+      favourites: favourites,
+      visibleSongs: visibleSongs,
+      visibleAlbums: visibleAlbums,
+      visibleArtists: visibleArtists,
+      searchResults: searchResults,
+      searching: searching,
+      query: query,
+      isLoading: isLoading,
+      error: error,
+      currentSongId: currentSongId,
+      isPlaying: isPlaying,
+    );
 
     return Scaffold(
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            floating: true,
-            snap: true,
-            title: Text('Your library', style: theme.textTheme.headlineSmall),
-            actions: [
-              PopupMenuButton<SongsSortMode>(
-                tooltip: 'Sort songs',
-                icon: const Icon(Icons.sort),
-                initialValue: settings.songsSortMode,
-                onSelected: (mode) => ref
-                    .read(settingsControllerProvider.notifier)
-                    .setSongsSortMode(mode),
-                itemBuilder: (context) => [
-                  for (final mode in SongsSortMode.values)
-                    PopupMenuItem(value: mode, child: Text(mode.label)),
-                ],
+      body: Stack(
+        children: [
+          CustomScrollView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            slivers: [
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    sidePadding,
+                    _selectionMode
+                        ? ThemeConstants.spacing8
+                        : ThemeConstants.spacing8,
+                    sidePadding,
+                    _selectionMode
+                        ? ThemeConstants.spacing4
+                        : ThemeConstants.spacing8,
+                  ),
+                  child: _selectionMode
+                      ? _buildSelectionHeader(selectAllCandidates)
+                      : _buildHeader(
+                          context: context,
+                          songs: songs,
+                          albums: albums,
+                          artists: artists,
+                          sortMode: sortOptions.$1,
+                          sortAscending: sortOptions.$2,
+                          settingsController: settingsController,
+                          scanState: scanState,
+                          query: query,
+                          isLoading: isLoading,
+                          onScan: _scanLibrary,
+                          onAddFolder: _addFolder,
+                          onToggleFavourites: () => setState(
+                            () => _favouritesOnly = !_favouritesOnly,
+                          ),
+                          onTabChanged: (tab) => setState(() => _tab = tab),
+                          onSearchChanged: _onSearchChanged,
+                          onClearSearch: _clearSearch,
+                          searchController: _searchController,
+                          searchFocusNode: _searchFocusNode,
+                        ),
+                ),
               ),
-              IconButton(
-                tooltip: 'Search',
-                icon: const Icon(Icons.search),
-                onPressed: () {
-                  // Search lives in the app bar of the library; the full
-                  // search experience is provided by the library feature.
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const _SearchOverlayPage(),
-                    ),
-                  );
-                },
+              if (!_selectionMode)
+                SliverToBoxAdapter(
+                  child: ScanStatusBanner(
+                    state: scanState,
+                    onRetry: _scanLibrary,
+                  ),
+                ),
+              ...contentSlivers,
+              SliverToBoxAdapter(
+                child: SizedBox(
+                  height: _selectionMode ? 132 : ThemeConstants.spacing32,
+                ),
               ),
             ],
           ),
-          if (isLoading && songs.isEmpty)
-            const SliverFillRemaining(
-              hasScrollBody: false,
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (error != null)
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: _ErrorState(message: '$error'),
-            )
-          else if (songs.isEmpty)
-            const SliverFillRemaining(
-              hasScrollBody: false,
-              child: LibraryEmptyState(),
-            )
-          else
-            SliverList.builder(
-              itemCount: songs.length,
-              itemBuilder: (context, index) {
-                final song = songs[index];
-                return SongTile(
-                  song: song,
-                  onTap: () {
-                    ref
-                        .read(playerControllerProvider.notifier)
-                        .playSongs(songs, initialIndex: index);
-                    openNowPlaying(context);
-                  },
-                );
-              },
-            ),
-          const SliverPadding(padding: EdgeInsets.only(bottom: 96)),
-        ],
-      ),
-    );
-  }
-}
-
-class LibraryEmptyState extends StatelessWidget {
-  const LibraryEmptyState({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 96,
-            height: 96,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  theme.colorScheme.primaryContainer,
-                  theme.colorScheme.tertiaryContainer,
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: IgnorePointer(
+              ignoring: !_selectionMode,
+              child: AnimatedSlide(
+                offset: _selectionMode ? Offset.zero : const Offset(0, 1.4),
+                duration: ThemeConstants.motionDuration(
+                  context,
+                  ThemeConstants.medium,
+                ),
+                curve: Curves.easeOutCubic,
+                child: AnimatedOpacity(
+                  opacity: _selectionMode ? 1 : 0,
+                  duration: ThemeConstants.motionDuration(
+                    context,
+                    ThemeConstants.fast,
+                  ),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 680),
+                      child: LibrarySelectionBar(
+                        count: _selectedIds.length,
+                        favouriteActive:
+                            selectedSongs.isNotEmpty &&
+                            selectedSongs.every((song) => song.isFavorite),
+                        onFavourite: () => _favouriteSelected(selectedSongs),
+                        onAddToPlaylist: () =>
+                            _addSelectedToPlaylist(selectedSongs),
+                        onQueue: () => _queueSelected(selectedSongs),
+                      ),
+                    ),
+                  ),
+                ),
               ),
-              borderRadius: BorderRadius.circular(28),
             ),
-            child: Icon(
-              Icons.graphic_eq_rounded,
-              size: 48,
-              color: theme.colorScheme.onPrimaryContainer,
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text('Your vibe starts here', style: theme.textTheme.headlineSmall),
-          const SizedBox(height: 8),
-          Text(
-            'Add the music you already own. NM VYBE reads your files, '
-            'artwork and playlists — no account, no ads, no tracking.',
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 24),
-          FilledButton.icon(
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Library scanning is being wired up next.'),
-                ),
-              );
-            },
-            icon: const Icon(Icons.folder_open),
-            label: const Text('Scan my music'),
           ),
         ],
       ),
-    );
-  }
-}
-
-class _ErrorState extends StatelessWidget {
-  const _ErrorState({required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.error_outline, size: 48),
-            const SizedBox(height: 12),
-            Text('Could not load the library', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            Text(message, textAlign: TextAlign.center),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SearchOverlayPage extends ConsumerWidget {
-  const _SearchOverlayPage();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final query = ref.watch(searchQueryProvider);
-    final results = ref.watch(searchResultsProvider);
-    return Scaffold(
-      appBar: AppBar(
-        title: TextField(
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'Songs, artists, albums…',
-            border: InputBorder.none,
-            filled: false,
-          ),
-          onChanged: (value) =>
-              ref.read(searchQueryProvider.notifier).state = value,
-        ),
-      ),
-      body: query.trim().isEmpty
-          ? const Center(child: Text('Type to search your library'))
-          : results.isEmpty
-              ? const Center(child: Text('Nothing found'))
-              : ListView.builder(
-                  itemCount: results.length,
-                  itemBuilder: (context, index) {
-                    final Song song = results[index];
-                    return SongTile(
-                      song: song,
-                      subtitle: song.displayAlbum,
-                      onTap: () {
-                        ref
-                            .read(playerControllerProvider.notifier)
-                            .playSongs(results, initialIndex: index);
-                        openNowPlaying(context);
-                      },
-                    );
-                  },
-                ),
     );
   }
 }

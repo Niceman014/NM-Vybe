@@ -1,26 +1,28 @@
 name: nm_vybe
-description: "NM VYBE — a free, local-first music player. Your music. Your vibe."
+description: "NM VYBE — a local-first music player. Your music. Your vibe."
 publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: '>=3.13.0 <4.0.0'
+  flutter: '>=3.47.0'
 
 dependencies:
   flutter:
     sdk: flutter
 
   # State management
-  flutter_riverpod: ^2.5.1
+  flutter_riverpod: ^3.4.3
 
   # Audio engine
-  just_audio: ^0.9.36
-  just_audio_windows: ^0.2.3
-  audio_service: ^0.18.12
-  audio_session: ^0.1.16
+  just_audio: ^0.10.6
+  just_audio_media_kit: ^2.1.0
+  media_kit_libs_windows_audio: ^1.0.9
+  audio_service: ^0.18.19
+  audio_session: ^0.2.4
 
   # Local library & storage
-  path_provider: ^2.1.2
+  path_provider: ^2.1.6
   path: ^1.9.0
   sembast: ^3.8.0
   shared_preferences: ^2.3.0
@@ -28,20 +30,27 @@ dependencies:
   on_audio_query: ^2.9.0
 
   # UI
-  dynamic_color: ^1.7.0
-  palette_generator: ^0.3.3+4
-  file_picker: ^8.3.7
+  # 2.0 migrated to material_ui, which is not compatible with the MaterialApp
+  # widget exported by this app's Flutter SDK yet.
+  dynamic_color: ^1.9.0
+  file_picker: ^13.3.0
 
   # Platform / app services
-  package_info_plus: ^8.0.0
-  http: ^1.2.0
+  package_info_plus: ^10.2.2
   url_launcher: ^6.2.5
-  ota_update: ^6.0.0
+  http: ^1.6.0
+  connectivity_plus: ^7.3.2
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^3.0.0
+  flutter_lints: ^6.0.0
+
+dependency_overrides:
+  # Local BSD-3-Clause patch: the upstream Android plugin lacks a namespace,
+  # pins compileSdk 33, and targets mismatched Java/Kotlin bytecode levels.
+  on_audio_query_android:
+    path: third_party/on_audio_query_android
 
 flutter:
   uses-material-design: true

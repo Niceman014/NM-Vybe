@@ -30,7 +30,10 @@ abstract class LibraryRepository {
   // -------------------------------------------------------------- playlists
   Future<List<Playlist>> getPlaylists();
   Stream<List<Playlist>> watchPlaylists();
-  Future<Playlist> createPlaylist(String name, {List<String> songIds = const []});
+  Future<Playlist> createPlaylist(
+    String name, {
+    List<String> songIds = const [],
+  });
   Future<void> updatePlaylist(Playlist playlist);
   Future<void> deletePlaylist(String playlistId);
   Future<void> addSongsToPlaylist(String playlistId, List<String> songIds);
@@ -66,8 +69,9 @@ class SembastLibraryRepository implements LibraryRepository {
   }
 
   static Future<SembastLibraryRepository> openInMemory() async {
-    final repository =
-        SembastLibraryRepository(await AppDatabase.openInMemory());
+    final repository = SembastLibraryRepository(
+      await AppDatabase.openInMemory(),
+    );
     await repository.init();
     return repository;
   }
@@ -263,7 +267,9 @@ class SembastLibraryRepository implements LibraryRepository {
 
   @override
   Future<void> setLastScanTime(DateTime time) async {
-    await _meta.record('lastScan').put(_db, {'at': time.millisecondsSinceEpoch});
+    await _meta.record('lastScan').put(_db, {
+      'at': time.millisecondsSinceEpoch,
+    });
   }
 
   @override
@@ -272,18 +278,22 @@ class SembastLibraryRepository implements LibraryRepository {
   List<Song> _toSongs(
     List<RecordSnapshot<String, Map<String, Object?>>> snapshots,
   ) {
-    final songs =
-        snapshots.map((snapshot) => Song.fromMap(snapshot.value)).toList();
-    songs.sort((a, b) =>
-        a.displayTitle.toLowerCase().compareTo(b.displayTitle.toLowerCase()));
+    final songs = snapshots
+        .map((snapshot) => Song.fromMap(snapshot.value))
+        .toList();
+    songs.sort(
+      (a, b) =>
+          a.displayTitle.toLowerCase().compareTo(b.displayTitle.toLowerCase()),
+    );
     return songs;
   }
 
   List<Playlist> _toPlaylists(
     List<RecordSnapshot<String, Map<String, Object?>>> snapshots,
   ) {
-    final playlists =
-        snapshots.map((snapshot) => Playlist.fromMap(snapshot.value)).toList();
+    final playlists = snapshots
+        .map((snapshot) => Playlist.fromMap(snapshot.value))
+        .toList();
     playlists.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     return playlists;
   }

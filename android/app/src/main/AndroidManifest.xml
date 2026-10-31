@@ -1,8 +1,32 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Local audio library access. Android 13+ (API 33) reads audio through
+         READ_MEDIA_AUDIO; API 32 and below fall back to READ_EXTERNAL_STORAGE. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
+    <!-- audio_service background playback:
+         - FOREGROUND_SERVICE + FOREGROUND_SERVICE_MEDIA_PLAYBACK (API 34+)
+           for the long running media playback service,
+         - WAKE_LOCK so playback survives with the screen off,
+         - POST_NOTIFICATIONS (API 33+) to display the media notification. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <application
-        android:label="nm_vybe"
+        android:label="NM VYBE"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <!-- MainActivity extends AudioServiceFragmentActivity, so it provides
+             the Flutter engine owned by audio_service. audio_service resolves
+             the notification tap target from the running activity class, which
+             is why the manifest points at .MainActivity and there is no
+             separate AudioServiceActivity declaration. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -25,6 +49,30 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+
+        <!-- audio_service background audio handler; owns the media session and
+             the foreground playback notification. -->
+        <service
+            android:name="com.ryanheise.audioservice.AudioService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="true"
+            tools:ignore="Instantiatable">
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+        </service>
+
+        <!-- Routes headset / bluetooth / lock-screen media buttons to the
+             audio_service media session. -->
+        <receiver
+            android:name="com.ryanheise.audioservice.MediaButtonReceiver"
+            android:exported="true"
+            tools:ignore="Instantiatable">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

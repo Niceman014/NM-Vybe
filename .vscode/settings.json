@@ -1,0 +1,12 @@
+{
+  "terminal.integrated.env.windows": {
+    "TEMP": "${workspaceFolder}\\.tmp",
+    "TMP": "${workspaceFolder}\\.tmp",
+    "NM_VYBE_DATA_DIR": "${workspaceFolder}\\.nm_vybe_data"
+  },
+  "java.import.gradle.enabled": false,
+  "java.import.maven.enabled": false,
+  "java.autobuild.enabled": false,
+  "java.configuration.updateBuildConfiguration": "disabled",
+  "java.gradle.buildServer.enabled": "off"
+}

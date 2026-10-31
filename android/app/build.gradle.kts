@@ -1,11 +1,54 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val releaseSigningProperties = Properties()
+val releaseSigningPropertiesFile = rootProject.file("key.properties")
+if (releaseSigningPropertiesFile.exists()) {
+    releaseSigningPropertiesFile.inputStream().use { releaseSigningProperties.load(it) }
+}
+
+val validateReleaseSigning = tasks.register("validateReleaseSigning") {
+    doLast {
+        if (!releaseSigningPropertiesFile.isFile) {
+            throw GradleException(
+                "Release signing is not configured. Copy android/key.properties.example " +
+                    "to android/key.properties and configure a private upload keystore."
+            )
+        }
+
+        val requiredKeys = listOf("storePassword", "keyPassword", "keyAlias", "storeFile")
+        val missingKeys = requiredKeys.filter { key ->
+            val value = releaseSigningProperties.getProperty(key)?.trim()
+            value.isNullOrEmpty() || value.startsWith("REPLACE_WITH_")
+        }
+        if (missingKeys.isNotEmpty()) {
+            throw GradleException(
+                "Release signing is missing valid values for: ${missingKeys.joinToString()}."
+            )
+        }
+
+        val keystore = rootProject.file(releaseSigningProperties.getProperty("storeFile"))
+        if (!keystore.isFile) {
+            throw GradleException("Release keystore does not exist: ${keystore.path}")
+        }
+    }
+}
+
+// Keep local debug builds usable without release credentials, but never let a
+// release variant proceed with an unsigned or example-configured identity.
+tasks.configureEach {
+    if (name == "preReleaseBuild") {
+        dependsOn(validateReleaseSigning)
+    }
+}
+
 android {
-    namespace = "com.example.nm_vybe"
+    namespace = "com.nmnext.nmvybe"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -15,8 +58,7 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.nm_vybe"
+        applicationId = "com.nmnext.nmvybe"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -29,11 +71,22 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("release") {
+            keyAlias = releaseSigningProperties.getProperty("keyAlias")
+            keyPassword = releaseSigningProperties.getProperty("keyPassword")
+            releaseSigningProperties.getProperty("storeFile")?.let {
+                storeFile = rootProject.file(it)
+            }
+            storePassword = releaseSigningProperties.getProperty("storePassword")
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Never ship a release binary under the debug signing identity.
+            // Configure android/key.properties locally or in the release CI environment.
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 }

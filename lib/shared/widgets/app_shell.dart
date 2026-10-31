@@ -1,24 +1,43 @@
 import 'package:flutter/material.dart';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../core/constants/theme_constants.dart';
+import '../../core/providers/app_providers.dart';
 import '../../features/library/views/library_page.dart';
+import '../../features/library/controllers/scan_controller.dart';
+import '../../features/discover/views/discover_page.dart';
 import '../../features/playlists/views/playlists_page.dart';
 import '../../features/settings/views/settings_page.dart';
+import 'desktop_now_playing_pane.dart';
 import 'mini_player.dart';
 
 /// Root navigation shell: compact bottom navigation on phones, a navigation
 /// rail on tablets/desktop, with the mini player pinned above the navigation.
-class AppShell extends StatefulWidget {
+class AppShell extends ConsumerStatefulWidget {
   const AppShell({super.key});
 
   @override
-  State<AppShell> createState() => _AppShellState();
+  ConsumerState<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
+class _AppShellState extends ConsumerState<AppShell> {
   int _index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !ref.read(settingsControllerProvider).autoScanOnStartup) {
+        return;
+      }
+      ref.read(scanControllerProvider.notifier).scanLibrary();
+    });
+  }
 
   static const List<Widget> _pages = [
     LibraryPage(),
+    DiscoverPage(),
     PlaylistsPage(),
     SettingsPage(),
   ];
@@ -28,6 +47,11 @@ class _AppShellState extends State<AppShell> {
       icon: Icon(Icons.library_music_outlined),
       selectedIcon: Icon(Icons.library_music),
       label: 'Library',
+    ),
+    NavigationDestination(
+      icon: Icon(Icons.explore_outlined),
+      selectedIcon: Icon(Icons.explore_rounded),
+      label: 'Discover',
     ),
     NavigationDestination(
       icon: Icon(Icons.queue_music_outlined),
@@ -46,6 +70,11 @@ class _AppShellState extends State<AppShell> {
       icon: Icon(Icons.library_music_outlined),
       selectedIcon: Icon(Icons.library_music),
       label: Text('Library'),
+    ),
+    NavigationRailDestination(
+      icon: Icon(Icons.explore_outlined),
+      selectedIcon: Icon(Icons.explore_rounded),
+      label: Text('Discover'),
     ),
     NavigationRailDestination(
       icon: Icon(Icons.queue_music_outlined),
@@ -67,6 +96,7 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final isWide = MediaQuery.sizeOf(context).width >= 900;
+    final hasDesktopPlayer = MediaQuery.sizeOf(context).width >= 1180;
 
     return Scaffold(
       body: SafeArea(
@@ -80,19 +110,34 @@ class _AppShellState extends State<AppShell> {
                 destinations: _railDestinations,
                 labelType: NavigationRailLabelType.all,
                 leading: const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 16),
+                  padding: EdgeInsets.symmetric(
+                    vertical: ThemeConstants.spacing16,
+                  ),
                   child: _BrandMark(),
                 ),
               ),
               const VerticalDivider(width: 1),
             ],
             Expanded(
-              child: Column(
+              child: Row(
                 children: [
                   Expanded(
-                    child: IndexedStack(index: _index, children: _pages),
+                    child: Column(
+                      children: [
+                        Expanded(
+                          child: IndexedStack(index: _index, children: _pages),
+                        ),
+                        if (!hasDesktopPlayer) const MiniPlayer(),
+                      ],
+                    ),
                   ),
-                  const MiniPlayer(),
+                  if (hasDesktopPlayer) ...[
+                    const VerticalDivider(width: 1),
+                    const SizedBox(
+                      width: ThemeConstants.desktopPlayerPaneWidth,
+                      child: DesktopNowPlayingPane(),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -130,10 +175,8 @@ class _BrandMark extends StatelessWidget {
       alignment: Alignment.center,
       child: Text(
         'NM',
-        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: scheme.onPrimary,
-              fontWeight: FontWeight.w900,
-            ),
+        style: Theme.of(context).textTheme.labelLarge
+            ?.copyWith(color: scheme.onPrimary, fontWeight: FontWeight.w900),
       ),
     );
   }

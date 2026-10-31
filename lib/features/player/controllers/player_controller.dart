@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 
 import '../../../core/data/library_repository.dart';
 import '../../../core/services/audio_handler.dart';
@@ -86,8 +86,9 @@ class PlayerState {
       repeatMode: repeatMode ?? this.repeatMode,
       shuffleEnabled: shuffleEnabled ?? this.shuffleEnabled,
       speed: speed ?? this.speed,
-      sleepTimerRemaining:
-          clearSleepTimer ? null : (sleepTimerRemaining ?? this.sleepTimerRemaining),
+      sleepTimerRemaining: clearSleepTimer
+          ? null
+          : (sleepTimerRemaining ?? this.sleepTimerRemaining),
       error: clearError ? null : (error ?? this.error),
     );
   }
@@ -96,15 +97,12 @@ class PlayerState {
 /// Riverpod-facing controller: translates UI intents into audio-handler calls
 /// and mirrors the handler's streams into [PlayerState].
 class PlayerController extends StateNotifier<PlayerState> {
-  PlayerController({
-    required NmVybeAudioHandler handler,
-    required LibraryRepository repository,
-  })  : _handler = handler,
-        _repository = repository,
-        super(const PlayerState()) {
+  PlayerController({required this._handler, required this._repository})
+    : super(const PlayerState()) {
     _subscriptions.addAll([
       _handler.playbackState.listen(_onPlaybackState),
       _handler.mediaItem.listen(_onMediaItem),
+      _handler.playbackErrorStream.listen(_onPlaybackError),
       _handler.positionStream.listen(_onPosition),
       _handler.durationStream.listen(_onDuration),
       _handler.bufferedPositionStream.listen(_onBuffered),
@@ -117,6 +115,7 @@ class PlayerController extends StateNotifier<PlayerState> {
   final LibraryRepository _repository;
   final List<StreamSubscription<dynamic>> _subscriptions = [];
   Timer? _sleepTimer;
+  Timer? _playbackErrorTimer;
   String? _lastRecordedSongId;
 
   NmVybeAudioHandler get handler => _handler;
@@ -126,16 +125,27 @@ class PlayerController extends StateNotifier<PlayerState> {
     final queueIndex = playbackState.queueIndex;
     state = state.copyWith(
       playing: playbackState.playing,
-      loading: playbackState.processingState == AudioProcessingState.loading ||
+      loading:
+          playbackState.processingState == AudioProcessingState.loading ||
           playbackState.processingState == AudioProcessingState.buffering,
       repeatMode: playbackState.repeatMode,
       shuffleEnabled: playbackState.shuffleMode != AudioServiceShuffleMode.none,
-      currentIndex: (queueIndex != null &&
+      currentIndex:
+          (queueIndex != null &&
               queueIndex >= 0 &&
               queueIndex < state.queue.length)
           ? queueIndex
           : state.currentIndex,
     );
+  }
+
+  void _onPlaybackError(String message) {
+    if (!mounted) return;
+    _playbackErrorTimer?.cancel();
+    state = state.copyWith(loading: false, error: message);
+    _playbackErrorTimer = Timer(const Duration(seconds: 5), () {
+      if (mounted) state = state.copyWith(clearError: true);
+    });
   }
 
   void _onMediaItem(MediaItem? item) {
@@ -147,9 +157,11 @@ class PlayerController extends StateNotifier<PlayerState> {
     final song = index >= 0 ? state.queue[index] : null;
     if (song != null && _lastRecordedSongId != song.id) {
       _lastRecordedSongId = song.id;
-      unawaited(_repository.recordPlay(song.id).catchError((Object error) {
-        _log.w('Could not record play for ${song.id}', error);
-      }));
+      unawaited(
+        _repository.recordPlay(song.id).catchError((Object error) {
+          _log.w('Could not record play for ${song.id}', error);
+        }),
+      );
     }
   }
 
@@ -182,6 +194,7 @@ class PlayerController extends StateNotifier<PlayerState> {
     List<Song> songs, {
     int initialIndex = 0,
     Duration? initialPosition,
+    bool autoPlay = true,
   }) async {
     if (songs.isEmpty) return;
     final safeIndex = initialIndex.clamp(0, songs.length - 1);
@@ -199,7 +212,7 @@ class PlayerController extends StateNotifier<PlayerState> {
         songs.map(_toMediaItem).toList(growable: false),
         initialIndex: safeIndex,
         initialPosition: initialPosition,
-        autoPlay: true,
+        autoPlay: autoPlay,
       );
     } catch (error, stackTrace) {
       _log.e('Could not start playback', error, stackTrace);
@@ -216,10 +229,17 @@ class PlayerController extends StateNotifier<PlayerState> {
 
   Future<void> togglePlayPause() async {
     if (!state.hasSong) return;
-    if (state.playing) {
-      await _handler.pause();
-    } else {
-      await _handler.play();
+    try {
+      if (state.playing) {
+        await _handler.pause();
+      } else {
+        await _handler.play();
+      }
+    } catch (error, stackTrace) {
+      _log.e('Could not change playback state', error, stackTrace);
+      if (mounted) {
+        state = state.copyWith(loading: false, error: '$error');
+      }
     }
   }
 
@@ -231,8 +251,8 @@ class PlayerController extends StateNotifier<PlayerState> {
     final target = position < Duration.zero
         ? Duration.zero
         : (state.duration > Duration.zero && position > state.duration
-            ? state.duration
-            : position);
+              ? state.duration
+              : position);
     state = state.copyWith(position: target);
     await _handler.seek(target);
   }
@@ -292,8 +312,8 @@ class PlayerController extends StateNotifier<PlayerState> {
     final shiftedIndex = index < state.currentIndex
         ? state.currentIndex - 1
         : (index == state.currentIndex
-            ? state.currentIndex.clamp(0, queue.length - 1)
-            : state.currentIndex);
+              ? state.currentIndex.clamp(0, queue.length - 1)
+              : state.currentIndex);
     state = state.copyWith(queue: queue, currentIndex: shiftedIndex);
   }
 
@@ -309,8 +329,9 @@ class PlayerController extends StateNotifier<PlayerState> {
     final song = queue.removeAt(oldIndex);
     queue.insert(target, song);
     await _handler.moveQueueItem(oldIndex, target);
-    final currentIndex =
-        currentId == null ? state.currentIndex : queue.indexWhere((s) => s.id == currentId);
+    final currentIndex = currentId == null
+        ? state.currentIndex
+        : queue.indexWhere((s) => s.id == currentId);
     state = state.copyWith(
       queue: queue,
       currentIndex: currentIndex < 0 ? state.currentIndex : currentIndex,
@@ -364,8 +385,12 @@ class PlayerController extends StateNotifier<PlayerState> {
       album: song.displayAlbum,
       duration: song.duration,
       extras: <String, dynamic>{
-        'path': song.filePath,
+        'path': song.isDownloaded
+            ? song.filePath
+            : (song.streamUrl ?? song.filePath),
         'artworkKey': song.artworkKey,
+        'artworkUrl': song.remoteArtworkUrl,
+        'source': song.source,
       },
     );
   }
@@ -373,6 +398,7 @@ class PlayerController extends StateNotifier<PlayerState> {
   @override
   void dispose() {
     _cancelSleepTimer();
+    _playbackErrorTimer?.cancel();
     for (final subscription in _subscriptions) {
       subscription.cancel();
     }

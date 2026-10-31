@@ -54,6 +54,39 @@ class ThemeConstants {
   static const double radiusLarge = 24;
   static const double radiusXLarge = 32;
 
+  /// Layout spacing tokens. Use these in widgets instead of ad-hoc gaps.
+  static const double spacing4 = 4;
+  static const double spacing8 = 8;
+  static const double spacing12 = 12;
+  static const double spacing16 = 16;
+  static const double spacing24 = 24;
+  static const double spacing32 = 32;
+
+  static const double minimumTapTarget = 48;
+  static const double navigationBarHeight = 68;
+  static const double desktopPlayerPaneWidth = 344;
+
+  static const Color pureBlackSurfaceLow = Color(0xFF080808);
+  static const Color pureBlackSurface = Color(0xFF000000);
+  static const Color pureBlackSurfaceContainer = Color(0xFF101010);
+  static const Color pureBlackSurfaceHigh = Color(0xFF191919);
+  static const Color pureBlackSurfaceHighest = Color(0xFF222222);
+  static const Color pureBlackOnSurface = Color(0xFFF1F1F1);
+  static const Color pureBlackOnSurfaceVariant = Color(0xFFC4C4C4);
+  static const Color pureBlackOutline = Color(0xFF8E8E8E);
+  static const Color pureBlackOutlineVariant = Color(0xFF494949);
+
+  static bool reduceMotion(BuildContext context) =>
+      MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+
+  static Duration motionDuration(BuildContext context, Duration duration) =>
+      reduceMotion(context) ? Duration.zero : duration;
+
+  static Color readableOn(Color background) =>
+      ThemeData.estimateBrightnessForColor(background) == Brightness.light
+      ? const ColorScheme.light().onSurface
+      : const ColorScheme.dark().onSurface;
+
   static const Duration fast = Duration(milliseconds: 160);
   static const Duration medium = Duration(milliseconds: 280);
   static const Duration slow = Duration(milliseconds: 480);

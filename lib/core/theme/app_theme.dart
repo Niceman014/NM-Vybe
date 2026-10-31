@@ -14,17 +14,39 @@ class AppTheme {
     return _build(seed, Brightness.light, dynamicScheme);
   }
 
-  static ThemeData dark(Color seed, {ColorScheme? dynamicScheme}) {
-    return _build(seed, Brightness.dark, dynamicScheme);
+  static ThemeData dark(
+    Color seed, {
+    ColorScheme? dynamicScheme,
+    bool pureBlack = false,
+  }) {
+    return _build(seed, Brightness.dark, dynamicScheme, pureBlack: pureBlack);
   }
 
   static ThemeData _build(
     Color seed,
     Brightness brightness,
-    ColorScheme? dynamicScheme,
-  ) {
-    final scheme = dynamicScheme ??
+    ColorScheme? dynamicScheme, {
+    bool pureBlack = false,
+  }) {
+    final generatedScheme =
+        dynamicScheme ??
         ColorScheme.fromSeed(seedColor: seed, brightness: brightness);
+    final scheme = pureBlack && brightness == Brightness.dark
+        ? generatedScheme.copyWith(
+            surface: ThemeConstants.pureBlackSurface,
+            surfaceDim: ThemeConstants.pureBlackSurface,
+            surfaceBright: ThemeConstants.pureBlackSurfaceHighest,
+            surfaceContainerLowest: ThemeConstants.pureBlackSurface,
+            surfaceContainerLow: ThemeConstants.pureBlackSurfaceLow,
+            surfaceContainer: ThemeConstants.pureBlackSurfaceContainer,
+            surfaceContainerHigh: ThemeConstants.pureBlackSurfaceHigh,
+            surfaceContainerHighest: ThemeConstants.pureBlackSurfaceHighest,
+            onSurface: ThemeConstants.pureBlackOnSurface,
+            onSurfaceVariant: ThemeConstants.pureBlackOnSurfaceVariant,
+            outline: ThemeConstants.pureBlackOutline,
+            outlineVariant: ThemeConstants.pureBlackOutlineVariant,
+          )
+        : generatedScheme;
     final base = ThemeData(colorScheme: scheme, useMaterial3: true);
     final textTheme = base.textTheme.copyWith(
       displaySmall: base.textTheme.displaySmall?.copyWith(
@@ -69,7 +91,7 @@ class AppTheme {
         backgroundColor: scheme.surfaceContainer,
         indicatorColor: scheme.primaryContainer,
         elevation: 0,
-        height: 68,
+        height: ThemeConstants.navigationBarHeight,
         labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
           final selected = states.contains(WidgetState.selected);
@@ -89,8 +111,10 @@ class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: scheme.surfaceContainerHighest,
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: ThemeConstants.spacing16,
+          vertical: ThemeConstants.spacing12,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(ThemeConstants.radiusXLarge),
           borderSide: BorderSide.none,
@@ -103,11 +127,20 @@ class AppTheme {
           borderRadius: BorderRadius.circular(ThemeConstants.radiusXLarge),
           borderSide: BorderSide(color: scheme.primary, width: 1.5),
         ),
-        hintStyle: textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+        hintStyle: textTheme.bodyMedium?.copyWith(
+          color: scheme.onSurfaceVariant,
+        ),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+          minimumSize: const Size(
+            ThemeConstants.minimumTapTarget,
+            ThemeConstants.minimumTapTarget,
+          ),
+          padding: const EdgeInsets.symmetric(
+            horizontal: ThemeConstants.spacing16,
+            vertical: ThemeConstants.spacing12,
+          ),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(ThemeConstants.radiusXLarge),
           ),
@@ -116,7 +149,14 @@ class AppTheme {
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+          minimumSize: const Size(
+            ThemeConstants.minimumTapTarget,
+            ThemeConstants.minimumTapTarget,
+          ),
+          padding: const EdgeInsets.symmetric(
+            horizontal: ThemeConstants.spacing16,
+            vertical: ThemeConstants.spacing12,
+          ),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(ThemeConstants.radiusXLarge),
           ),
@@ -124,6 +164,10 @@ class AppTheme {
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
+          minimumSize: const Size(
+            ThemeConstants.minimumTapTarget,
+            ThemeConstants.minimumTapTarget,
+          ),
           textStyle: textTheme.labelLarge,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(ThemeConstants.radiusMedium),
@@ -178,6 +222,12 @@ class AppTheme {
         iconColor: scheme.onSurfaceVariant,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(ThemeConstants.radiusMedium),
+        ),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: IconButton.styleFrom(
+          minimumSize: const Size.square(ThemeConstants.minimumTapTarget),
+          padding: const EdgeInsets.all(ThemeConstants.spacing12),
         ),
       ),
       chipTheme: base.chipTheme.copyWith(

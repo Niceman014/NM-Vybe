@@ -27,8 +27,11 @@ class InMemoryLibraryRepository implements LibraryRepository {
 
   void _emitSongs() {
     _songsSnapshot = _songs.values.toList()
-      ..sort((a, b) =>
-          a.displayTitle.toLowerCase().compareTo(b.displayTitle.toLowerCase()));
+      ..sort(
+        (a, b) => a.displayTitle.toLowerCase().compareTo(
+          b.displayTitle.toLowerCase(),
+        ),
+      );
     if (!_songController.isClosed) _songController.add(_songsSnapshot);
   }
 
@@ -98,10 +101,12 @@ class InMemoryLibraryRepository implements LibraryRepository {
   Future<void> recordPlay(String songId) async {
     final song = _songs[songId];
     if (song == null) return;
-    await updateSong(song.copyWith(
-      playCount: song.playCount + 1,
-      lastPlayedAt: DateTime.now(),
-    ));
+    await updateSong(
+      song.copyWith(
+        playCount: song.playCount + 1,
+        lastPlayedAt: DateTime.now(),
+      ),
+    );
   }
 
   @override
@@ -113,7 +118,8 @@ class InMemoryLibraryRepository implements LibraryRepository {
 
   @override
   Future<List<Playlist>> getPlaylists() async =>
-      _playlists.values.toList()..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      _playlists.values.toList()
+        ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
 
   @override
   Stream<List<Playlist>> watchPlaylists() async* {
@@ -122,8 +128,10 @@ class InMemoryLibraryRepository implements LibraryRepository {
   }
 
   @override
-  Future<Playlist> createPlaylist(String name,
-      {List<String> songIds = const []}) async {
+  Future<Playlist> createPlaylist(
+    String name, {
+    List<String> songIds = const [],
+  }) async {
     final now = DateTime.now();
     final playlist = Playlist(
       id: 'pl_${now.microsecondsSinceEpoch}',
@@ -139,8 +147,7 @@ class InMemoryLibraryRepository implements LibraryRepository {
 
   @override
   Future<void> updatePlaylist(Playlist playlist) async {
-    _playlists[playlist.id] =
-        playlist.copyWith(updatedAt: DateTime.now());
+    _playlists[playlist.id] = playlist.copyWith(updatedAt: DateTime.now());
     _emitPlaylists();
   }
 
@@ -152,7 +159,9 @@ class InMemoryLibraryRepository implements LibraryRepository {
 
   @override
   Future<void> addSongsToPlaylist(
-      String playlistId, List<String> songIds) async {
+    String playlistId,
+    List<String> songIds,
+  ) async {
     final playlist = _playlists[playlistId];
     if (playlist == null) return;
     final updated = <String>[...playlist.songIds];
@@ -175,7 +184,9 @@ class InMemoryLibraryRepository implements LibraryRepository {
 
   @override
   Future<void> reorderPlaylistSongs(
-      String playlistId, List<String> songIds) async {
+    String playlistId,
+    List<String> songIds,
+  ) async {
     final playlist = _playlists[playlistId];
     if (playlist == null) return;
     await updatePlaylist(playlist.copyWith(songIds: List<String>.of(songIds)));

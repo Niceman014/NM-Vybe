@@ -22,6 +22,15 @@ class NmVybeApp extends ConsumerWidget {
           title: AppConstants.appName,
           debugShowCheckedModeBanner: false,
           themeMode: settings.themeMode,
+          themeAnimationDuration:
+              WidgetsBinding
+                  .instance
+                  .platformDispatcher
+                  .accessibilityFeatures
+                  .disableAnimations
+              ? Duration.zero
+              : const Duration(milliseconds: 240),
+          themeAnimationCurve: Curves.easeInOutCubic,
           theme: AppTheme.light(
             seed,
             dynamicScheme: useDynamic ? lightDynamic : null,
@@ -29,6 +38,7 @@ class NmVybeApp extends ConsumerWidget {
           darkTheme: AppTheme.dark(
             seed,
             dynamicScheme: useDynamic ? darkDynamic : null,
+            pureBlack: settings.usePureBlackTheme,
           ),
           home: const AppShell(),
         );

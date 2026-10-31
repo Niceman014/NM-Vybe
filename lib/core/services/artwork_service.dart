@@ -3,10 +3,10 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
 import '../constants/app_constants.dart';
 import '../utils/logger.dart';
+import 'app_storage.dart';
 
 /// Stores album artwork extracted during scanning as small files in
 /// app-support storage. Songs reference artwork by [Song.artworkKey], never by
@@ -24,9 +24,10 @@ class ArtworkService {
   Future<Directory> _directory() async {
     final existing = _cacheDirectory;
     if (existing != null) return existing;
-    final support = await getApplicationSupportDirectory();
-    final directory =
-        Directory(p.join(support.path, AppConstants.artworkDirName));
+    final support = await AppStorage.supportDirectory();
+    final directory = Directory(
+      p.join(support.path, AppConstants.artworkDirName),
+    );
     if (!await directory.exists()) {
       await directory.create(recursive: true);
     }

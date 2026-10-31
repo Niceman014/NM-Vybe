@@ -40,8 +40,7 @@ void main() {
     });
 
     test('sorts by title descending', () {
-      final sorted =
-          sortSongs(songs, SongsSortMode.title, ascending: false);
+      final sorted = sortSongs(songs, SongsSortMode.title, ascending: false);
       expect(sorted.map((song) => song.title), ['Beta', 'Alpha']);
     });
 
