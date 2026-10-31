@@ -36,8 +36,7 @@ The app has about 16,000 lines of Dart with a clean `core/`, `features/` and `sh
 | Unused dependencies: `drift`, `drift_flutter`, `on_audio_query_pluse`, `cached_network_image`, `go_router` | `pubspec.yaml` | Bigger app, confusing code |
 | `palette_generator` is discontinued | `palette_controller.dart` | Future breakage |
 | `applicationId` is `com.example.nm_vybe`; release signed with the debug key | `android/app/build.gradle.kts` | Play Store will reject it |
-| `version.json` points to a public APK | `update_service.dart`, `version.json` | A paid app would be downloadable for free |
-| Updater has no hash check; version parsing crashes on `1.0.0-beta` | `update_service.dart` | Security and stability |
+| Updater security was incomplete | `features/updates/`, private backend manifest, and SemVer parser | Fixed in Phase 4a; installer hosting and license checks remain Phase 4c work |
 | Text says "free" | `pubspec.yaml`, `docs/ARCHITECTURE.md`, `README.md` | Conflicts with the paid plan |
 | Project folder is 1.23 GB | `build/`, `.dart_tool/`, Gradle caches, temp folders | Slow to zip, copy and back up |
 
@@ -116,8 +115,9 @@ nm_vybe/                               # Flutter project root (D:\Flutter Projec
 ├── .gitignore                          # build/, .dart_tool/, android/.gradle/, *.jks, key.properties, .env, *.log, *.dill
 ├── analysis_options.yaml
 ├── pubspec.yaml  pubspec.lock
-├── version.json                        # public metadata only; no private download links
 └── README.md
+
+docs/UPDATES.md                         # update flow and private manifest format
 
 backend/                                # NEW (Phase 4), separate folder or repo: Node.js + TypeScript
 ├── src/
@@ -288,9 +288,10 @@ Do this only after Phases 1 to 3 are done and tested on a real Android phone and
 
 **Secure updater (one strategy per platform)**
 
-- Google Play and App Store builds: use the store's update flow. Never self-install APKs there.
-- Direct downloads (Windows, Linux): the app asks the backend for the latest version. The backend returns a signed download link only for users with a valid license.
-- `version.json` lists version, minimum supported version, per-platform URL, SHA-256 hash and release notes. The app verifies the hash before installing.
+- Android is distributed only through Google Play and uses Play in-app updates; never self-install APKs.
+- Windows direct downloads come from a private backend manifest; verify the installer SHA-256 before launching it. Release requests and installer downloads use HTTPS.
+- The private manifest is stored outside the repository. No public `version.json`, APK URL, or installer URL belongs in source control. Its download URL remains a documented placeholder until Phase 4c adds license checks and hosting.
+- iOS, macOS and Linux open their store or release page; they do not self-install binaries.
 - Parse versions with a proper semver parser so `1.0.0-beta` never crashes.
 - Never host paid builds on a public repository.
 - Check: unit tests for version comparison, hash mismatch rejection and each platform branch.

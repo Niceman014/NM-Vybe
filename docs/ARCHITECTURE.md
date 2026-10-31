@@ -57,7 +57,7 @@ lib/
 
 | Area | Owner | Files |
 | --- | --- | --- |
-| Core, shell, integration, build | Lead | `lib/main.dart`, `lib/app.dart`, `lib/core/**` (except files listed below), `lib/shared/widgets/app_shell.dart`, `pubspec.yaml`, `README.md`, `docs/`, `version.json`, `test/widget_test.dart` |
+| Core, shell, integration, build | Lead | `lib/main.dart`, `lib/app.dart`, `lib/core/**` (except files listed below), `lib/shared/widgets/app_shell.dart`, `pubspec.yaml`, `README.md`, `docs/`, `test/widget_test.dart` |
 | Audio platform + equalizer | audio-platform | `android/**`, `lib/features/settings/controllers/equalizer_controller.dart` |
 | Scanning, tags, lyrics | library-data | `lib/core/services/tag_reader.dart`, `lib/core/services/scanner_service.dart`, `lib/core/services/lyrics_service.dart`, `lib/features/library/controllers/scan_controller.dart`, `test/tag_reader_test.dart`, `test/lyrics_service_test.dart`, `test/scanner_service_test.dart` |
 | Player UI | player-ui | `lib/shared/widgets/album_art.dart`, `lib/shared/widgets/mini_player.dart`, `lib/features/player/views/**`, `lib/features/player/controllers/palette_controller.dart` |
