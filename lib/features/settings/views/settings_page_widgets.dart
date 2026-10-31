@@ -212,8 +212,8 @@ class _EqualizerSheet extends ConsumerWidget {
                   ),
                 const SizedBox(height: ThemeConstants.spacing12),
                 Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
+                  spacing: ThemeConstants.spacing8,
+                  runSpacing: ThemeConstants.spacing8,
                   children: [
                     if (eq.isCustom)
                       Chip(

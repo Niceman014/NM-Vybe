@@ -364,8 +364,8 @@ class _ArtistActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Wrap(
-      spacing: 12,
-      runSpacing: 12,
+      spacing: ThemeConstants.spacing12,
+      runSpacing: ThemeConstants.spacing12,
       children: [
         FilledButton.icon(
           onPressed: onPlay,

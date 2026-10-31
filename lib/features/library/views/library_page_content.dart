@@ -291,8 +291,8 @@ extension _LibraryPageContent on _LibraryPageState {
       sliver: SliverGrid(
         gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
           maxCrossAxisExtent: crossAxisExtent,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 8,
+          crossAxisSpacing: ThemeConstants.spacing12,
+          mainAxisSpacing: ThemeConstants.spacing8,
           childAspectRatio: childAspectRatio,
         ),
         delegate: SliverChildBuilderDelegate(

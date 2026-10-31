@@ -164,8 +164,8 @@ class PlaylistsPage extends ConsumerWidget {
               sliver: SliverGrid(
                 gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
                   maxCrossAxisExtent: 240,
-                  crossAxisSpacing: 14,
-                  mainAxisSpacing: 14,
+                  crossAxisSpacing: ThemeConstants.spacing16,
+                  mainAxisSpacing: ThemeConstants.spacing16,
                   childAspectRatio: 0.72,
                 ),
                 delegate: SliverChildBuilderDelegate((context, index) {

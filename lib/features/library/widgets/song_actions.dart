@@ -194,8 +194,8 @@ Future<void> showSongInfoSheet(BuildContext context, Song song) {
               ),
               const SizedBox(height: ThemeConstants.spacing24),
               Wrap(
-                spacing: 8,
-                runSpacing: 8,
+                spacing: ThemeConstants.spacing8,
+                runSpacing: ThemeConstants.spacing8,
                 children: [
                   _InfoChip(
                     icon: Icons.schedule_rounded,

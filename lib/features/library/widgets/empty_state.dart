@@ -89,8 +89,8 @@ class EmptyState extends StatelessWidget {
                 const SizedBox(height: ThemeConstants.spacing24),
                 Wrap(
                   alignment: WrapAlignment.center,
-                  spacing: 12,
-                  runSpacing: 12,
+                  spacing: ThemeConstants.spacing12,
+                  runSpacing: ThemeConstants.spacing12,
                   children: [?action, ?secondaryAction],
                 ),
               ],

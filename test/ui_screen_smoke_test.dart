@@ -12,6 +12,9 @@ import 'package:nm_vybe/core/services/settings_service.dart';
 import 'package:nm_vybe/core/theme/app_theme.dart';
 import 'package:nm_vybe/features/discover/views/discover_page.dart';
 import 'package:nm_vybe/features/library/views/library_page.dart';
+import 'package:nm_vybe/features/library/models/song_model.dart';
+import 'package:nm_vybe/features/library/widgets/loading_skeleton.dart';
+import 'package:nm_vybe/features/library/widgets/song_tile.dart';
 import 'package:nm_vybe/features/player/views/now_playing_page.dart';
 import 'package:nm_vybe/features/playlists/views/playlists_page.dart';
 import 'package:nm_vybe/features/settings/views/settings_page.dart';
@@ -36,10 +39,14 @@ void main() {
     await repository.close();
   });
 
-  Widget app(Widget page, {double textScale = 1}) {
+  Widget app(
+    Widget page, {
+    double textScale = 1,
+    InMemoryLibraryRepository? library,
+  }) {
     return ProviderScope(
       overrides: [
-        libraryRepositoryProvider.overrideWithValue(repository),
+        libraryRepositoryProvider.overrideWithValue(library ?? repository),
         settingsControllerProvider.overrideWith(
           (ref) => SettingsController(preferences),
         ),
@@ -63,6 +70,7 @@ void main() {
     WidgetTester tester,
     Widget page, {
     double textScale = 1,
+    InMemoryLibraryRepository? library,
   }) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
@@ -70,7 +78,7 @@ void main() {
       tester.view.resetPhysicalSize();
       tester.view.resetDevicePixelRatio();
     });
-    await tester.pumpWidget(app(page, textScale: textScale));
+    await tester.pumpWidget(app(page, textScale: textScale, library: library));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     expect(tester.takeException(), isNull);
@@ -80,6 +88,51 @@ void main() {
     await pumpScreen(tester, const LibraryPage());
     expect(find.text('Your vibe starts here'), findsOneWidget);
     expect(find.text('Scan my music'), findsOneWidget);
+  });
+
+  testWidgets('library shows a skeleton while its first snapshot loads', (
+    tester,
+  ) async {
+    final delayedRepository = _DelayedLibraryRepository();
+    await pumpScreen(tester, const LibraryPage(), library: delayedRepository);
+    expect(find.byType(SkeletonSongList), findsOneWidget);
+  });
+
+  testWidgets('library shows a retry action when its stream fails', (
+    tester,
+  ) async {
+    final failedRepository = _FailedLibraryRepository();
+    await pumpScreen(tester, const LibraryPage(), library: failedRepository);
+    expect(find.text('Could not load your library'), findsOneWidget);
+    expect(find.text('Try again'), findsOneWidget);
+  });
+
+  testWidgets('5,000-song library builds visible rows lazily', (tester) async {
+    final largeRepository = InMemoryLibraryRepository(
+      songs: List<Song>.generate(
+        5000,
+        (index) => Song(
+          id: 'local:$index',
+          filePath: 'C:/Music/track_$index.mp3',
+          title: 'Track ${index.toString().padLeft(5, '0')}',
+          artist: 'Artist ${index % 100}',
+          album: 'Album ${index % 250}',
+          albumArtist: 'Artist ${index % 100}',
+          duration: const Duration(minutes: 3),
+          fileSize: 1024,
+          addedAt: DateTime.utc(2026).add(Duration(seconds: index)),
+        ),
+      ),
+    );
+    addTearDown(largeRepository.close);
+    await pumpScreen(tester, const LibraryPage(), library: largeRepository);
+
+    expect(
+      tester.widgetList<SongTile>(find.byType(SongTile)).length,
+      lessThanOrEqualTo(30),
+    );
+    expect(find.text('Track 00000'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('discover screen renders its configured or setup state', (
@@ -105,12 +158,16 @@ void main() {
     tester,
   ) async {
     await pumpScreen(tester, const SettingsPage(), textScale: 1.8);
-    final settingsScrollable = find.descendant(
-      of: find.byType(CustomScrollView),
-      matching: find.byType(Scrollable),
-    ).first;
+    final settingsScrollable = find
+        .descendant(
+          of: find.byType(CustomScrollView),
+          matching: find.byType(Scrollable),
+        )
+        .first;
     final position = tester.state<ScrollableState>(settingsScrollable).position;
-    position.jumpTo((position.maxScrollExtent - 500).clamp(0.0, position.maxScrollExtent));
+    position.jumpTo(
+      (position.maxScrollExtent - 500).clamp(0.0, position.maxScrollExtent),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Offline downloads'));
     await tester.pumpAndSettle();
@@ -144,4 +201,15 @@ void main() {
     expect(find.text('Choose a song to start listening'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+}
+
+class _DelayedLibraryRepository extends InMemoryLibraryRepository {
+  @override
+  Stream<List<Song>> watchSongs() => Stream<List<Song>>.multi((_) {});
+}
+
+class _FailedLibraryRepository extends InMemoryLibraryRepository {
+  @override
+  Stream<List<Song>> watchSongs() =>
+      Stream<List<Song>>.error(StateError('test library failure'));
 }

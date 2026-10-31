@@ -298,8 +298,8 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage> {
         ),
         const SizedBox(height: ThemeConstants.spacing24),
         Wrap(
-          spacing: 12,
-          runSpacing: 12,
+          spacing: ThemeConstants.spacing12,
+          runSpacing: ThemeConstants.spacing12,
           alignment: isWide ? WrapAlignment.start : WrapAlignment.center,
           children: [
             FilledButton.icon(

@@ -217,8 +217,8 @@ class _EqualizerSheetState extends ConsumerState<EqualizerSheet> {
             )
           else ...[
             Wrap(
-              spacing: 8,
-              runSpacing: 4,
+              spacing: ThemeConstants.spacing8,
+              runSpacing: ThemeConstants.spacing4,
               children: [
                 for (final preset in equalizerPresetShapes.keys)
                   ChoiceChip(

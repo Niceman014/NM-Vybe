@@ -133,10 +133,12 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 LinearProgressIndicator(value: fraction),
-                const SizedBox(height: 12),
-                Text(total == null
-                    ? '${(received / (1024 * 1024)).toStringAsFixed(1)} MB'
-                    : '${(received / (1024 * 1024)).toStringAsFixed(1)} / ${(total / (1024 * 1024)).toStringAsFixed(1)} MB'),
+                const SizedBox(height: ThemeConstants.spacing12),
+                Text(
+                  total == null
+                      ? '${(received / (1024 * 1024)).toStringAsFixed(1)} MB'
+                      : '${(received / (1024 * 1024)).toStringAsFixed(1)} / ${(total / (1024 * 1024)).toStringAsFixed(1)} MB',
+                ),
               ],
             );
           },
@@ -204,9 +206,9 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
       mode: LaunchMode.externalApplication,
     );
     if (!launched && mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Could not open source page.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open source page.')),
+      );
     }
   }
 
@@ -294,7 +296,9 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                 ),
                 child: Text(
                   'Jamendo: Online search is not configured. Set BACKEND_URL in a debug build to use a local backend.',
-                  style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
                 ),
               ),
             if (!configured)
@@ -462,7 +466,7 @@ class _MusicTrackTile extends StatelessWidget {
                       ),
                       if (onOpen != null || onOpenLicense != null)
                         Wrap(
-                          spacing: 8,
+                          spacing: ThemeConstants.spacing8,
                           children: [
                             if (onOpen != null)
                               InkWell(
@@ -528,7 +532,7 @@ class _MusicTrackTile extends StatelessWidget {
                     if (onOpen != null)
                       const PopupMenuItem(
                         value: 'open',
-                      child: Text('Open source item'),
+                        child: Text('Open source item'),
                       ),
                   ],
                   icon: const Icon(Icons.more_vert_rounded),
