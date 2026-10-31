@@ -148,7 +148,8 @@ export function createMusicServer({
     if (!validVersion(version) || !validVersion(minSupportedVersion) ||
         typeof releaseNotes !== 'string' || releaseNotes.length > 5000 ||
         typeof sha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(sha256) ||
-        !Number.isSafeInteger(sizeBytes) || sizeBytes < 1 || !secureUrl) {
+        !Number.isSafeInteger(sizeBytes) || sizeBytes < 1 ||
+        sizeBytes > 2 * 1024 * 1024 * 1024 || !secureUrl) {
       const error = new Error('Update metadata is invalid.');
       error.statusCode = 503;
       throw error;
