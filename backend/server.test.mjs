@@ -149,3 +149,103 @@ test('empty search requests popular featured-style tracks without unsupported fi
     await new Promise((resolve) => catalog.close(resolve));
   }
 });
+
+const updateMetadata = {
+  releases: {
+    windows: {
+      stable: {
+        version: '1.1.0+2',
+        minSupportedVersion: '1.0.0+1',
+        releaseNotes: 'Security and stability improvements.',
+        sha256: 'a'.repeat(64),
+        sizeBytes: 123456,
+        downloadUrl: 'PHASE_4C_DOWNLOAD_URL_PENDING',
+      },
+    },
+  },
+};
+
+test('latest Windows update returns private configured metadata with placeholder status', async () => {
+  const updates = createMusicServer({ env, updateManifest: updateMetadata });
+  updates.listen(0, '127.0.0.1');
+  await new Promise((resolve) => updates.once('listening', resolve));
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${updates.address().port}/v1/updates/latest?platform=windows&channel=stable`,
+    );
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      platform: 'windows',
+      channel: 'stable',
+      version: '1.1.0+2',
+      minSupportedVersion: '1.0.0+1',
+      releaseNotes: 'Security and stability improvements.',
+      sha256: 'a'.repeat(64),
+      sizeBytes: 123456,
+      downloadUrl: 'PHASE_4C_DOWNLOAD_URL_PENDING',
+      downloadConfigured: false,
+    });
+  } finally {
+    await new Promise((resolve) => updates.close(resolve));
+  }
+});
+
+test('latest update validates platform, channel, and manifest security fields', async () => {
+  const updates = createMusicServer({ env, updateManifest: updateMetadata });
+  updates.listen(0, '127.0.0.1');
+  await new Promise((resolve) => updates.once('listening', resolve));
+  try {
+    const base = `http://127.0.0.1:${updates.address().port}/v1/updates/latest`;
+    assert.equal((await fetch(`${base}?platform=unknown&channel=stable`)).status, 400);
+    assert.equal((await fetch(`${base}?platform=android&channel=stable`)).status, 400);
+    assert.equal((await fetch(`${base}?platform=windows&channel=nightly`)).status, 400);
+    const insecure = createMusicServer({
+      env,
+      updateManifest: {
+        releases: { windows: { stable: {
+          ...updateMetadata.releases.windows.stable,
+          downloadUrl: 'http://updates.invalid/setup.exe',
+        } } },
+      },
+    });
+    insecure.listen(0, '127.0.0.1');
+    await new Promise((resolve) => insecure.once('listening', resolve));
+    try {
+      const invalid = await fetch(
+        `http://127.0.0.1:${insecure.address().port}/v1/updates/latest?platform=windows&channel=stable`,
+      );
+      assert.equal(invalid.status, 503);
+      assert.deepEqual(await invalid.json(), {
+        error: 'Update metadata is not configured or is invalid.',
+      });
+    } finally {
+      await new Promise((resolve) => insecure.close(resolve));
+    }
+  } finally {
+    await new Promise((resolve) => updates.close(resolve));
+  }
+});
+
+test('latest update endpoint is rate limited and caches repeated metadata', async () => {
+  const metadata = structuredClone(updateMetadata);
+  const updates = createMusicServer({
+    env,
+    requestLimit: 2,
+    updateManifest: metadata,
+  });
+  updates.listen(0, '127.0.0.1');
+  await new Promise((resolve) => updates.once('listening', resolve));
+  try {
+    const url = `http://127.0.0.1:${updates.address().port}/v1/updates/latest?platform=windows&channel=stable`;
+    const first = await fetch(url);
+    assert.equal(first.status, 200);
+    metadata.releases.windows.stable.version = '1.2.0';
+    const cached = await fetch(url);
+    assert.equal(cached.status, 200);
+    assert.equal((await cached.json()).version, '1.1.0+2');
+    const limited = await fetch(url);
+    assert.equal(limited.status, 429);
+  } finally {
+    await new Promise((resolve) => updates.close(resolve));
+  }
+});

@@ -65,3 +65,4 @@ google-services.json
 
 # Widget Preview related
 .widget_preview/
+/backend/private/updates.json

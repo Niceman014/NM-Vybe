@@ -1,4 +1,6 @@
 import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const apiBase = 'https://api.jamendo.com/v3.0/tracks/';
@@ -6,6 +8,8 @@ const rateWindowMs = 60_000;
 const maxRequestsPerWindow = 60;
 const cacheWindowMs = 30_000;
 const maxCachedQueries = 500;
+const updateCacheWindowMs = 60_000;
+const updateUrlPlaceholder = 'PHASE_4C_DOWNLOAD_URL_PENDING';
 
 function json(response, status, body, headers = {}) {
   response.writeHead(status, {
@@ -37,9 +41,12 @@ export function createMusicServer({
   env = process.env,
   fetchImpl = fetch,
   requestLimit = maxRequestsPerWindow,
+  updateManifest,
+  updateManifestFile,
 } = {}) {
   const requests = new Map();
   const cache = new Map();
+  const updateResponses = new Map();
   const allowedOrigins = new Set(
     (env.CORS_ORIGINS ?? '')
       .split(',')
@@ -89,6 +96,77 @@ export function createMusicServer({
     }
     cache.set(key, { rows: payload.results, expiresAt: Date.now() + cacheWindowMs });
     return payload.results;
+  }
+
+  async function getLatestUpdate(platform, channel) {
+    const key = `${platform}:${channel}`;
+    const cached = updateResponses.get(key);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+    if (cached) updateResponses.delete(key);
+
+    let manifest = updateManifest;
+    if (manifest == null) {
+      const configPath = updateManifestFile ?? env.UPDATE_MANIFEST_FILE ??
+        resolve(fileURLToPath(new URL('.', import.meta.url)), 'private', 'updates.json');
+      try {
+        manifest = JSON.parse(await readFile(configPath, 'utf8'));
+      } catch {
+        const error = new Error('Update metadata is not configured.');
+        error.statusCode = 503;
+        throw error;
+      }
+    }
+
+    const release = manifest?.releases?.[platform]?.[channel];
+    if (!release || typeof release !== 'object') {
+      const error = new Error('No update is configured for this platform and channel.');
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const { version, minSupportedVersion, releaseNotes, sha256, sizeBytes } = release;
+    const downloadUrl = release.downloadUrl ?? updateUrlPlaceholder;
+    const validVersion = (value) => {
+      if (typeof value !== 'string') return false;
+      const match = value.match(
+        /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/,
+      );
+      return Boolean(match) && !match[4]?.split('.').some((part) => /^0\d+$/.test(part));
+    };
+    let secureUrl = false;
+    if (downloadUrl === updateUrlPlaceholder) {
+      secureUrl = true;
+    } else if (typeof downloadUrl === 'string') {
+      try {
+        const parsedUrl = new URL(downloadUrl);
+        secureUrl = parsedUrl.protocol === 'https:' && parsedUrl.hostname.length > 0 &&
+          parsedUrl.username.length === 0 && parsedUrl.password.length === 0;
+      } catch {
+        secureUrl = false;
+      }
+    }
+    if (!validVersion(version) || !validVersion(minSupportedVersion) ||
+        typeof releaseNotes !== 'string' || releaseNotes.length > 5000 ||
+        typeof sha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(sha256) ||
+        !Number.isSafeInteger(sizeBytes) || sizeBytes < 1 || !secureUrl) {
+      const error = new Error('Update metadata is invalid.');
+      error.statusCode = 503;
+      throw error;
+    }
+
+    const value = {
+      platform,
+      channel,
+      version,
+      minSupportedVersion,
+      releaseNotes,
+      sha256: sha256.toLowerCase(),
+      sizeBytes,
+      downloadUrl,
+      downloadConfigured: downloadUrl !== updateUrlPlaceholder,
+    };
+    updateResponses.set(key, { value, expiresAt: Date.now() + updateCacheWindowMs });
+    return value;
   }
 
   return createServer(async (request, response) => {
@@ -190,6 +268,22 @@ export function createMusicServer({
         return;
       }
 
+      if (url.pathname === '/v1/updates/latest') {
+        const platform = url.searchParams.get('platform') ?? '';
+        const channel = url.searchParams.get('channel') ?? '';
+        if (platform !== 'windows') {
+          json(response, 400, { error: 'Invalid update platform.' }, corsHeaders);
+          return;
+        }
+        if (!['stable', 'beta'].includes(channel)) {
+          json(response, 400, { error: 'Invalid update channel.' }, corsHeaders);
+          return;
+        }
+        const update = await getLatestUpdate(platform, channel);
+        json(response, 200, update, corsHeaders);
+        return;
+      }
+
       const streamMatch = url.pathname.match(/^\/v1\/music\/stream\/([^/]+)$/);
       if (streamMatch) {
         const trackId = decodeURIComponent(streamMatch[1]);
@@ -212,10 +306,14 @@ export function createMusicServer({
       const status = Number.isInteger(error.statusCode) ? error.statusCode : 502;
       json(response, status, {
         error: status === 503
-          ? 'Jamendo commercial API access is not configured.'
-          : status === 502
-            ? 'The music catalog is temporarily unavailable.'
-            : 'The music request failed.',
+          ? url.pathname === '/v1/updates/latest'
+            ? 'Update metadata is not configured or is invalid.'
+            : 'Jamendo commercial API access is not configured.'
+          : status === 404
+            ? 'No update is configured for this platform and channel.'
+            : status === 502
+              ? 'The music catalog is temporarily unavailable.'
+              : 'The music request failed.',
       }, corsHeaders);
     }
   });
